@@ -4,3 +4,7 @@ DerivedData/
 xcuserdata/
 .DS_Store
 toolchains/
+
+# Fetched engine payload (not committed; see tools/fetch-engine.sh)
+Engine/
+App/Frameworks/

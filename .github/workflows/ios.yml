@@ -33,7 +33,7 @@ jobs:
           GH_TOKEN: ${{ secrets.PAYLOAD_TOKEN }}
         run: |
           set -euo pipefail
-          bash tools/fetch-engine.sh App/Frameworks
+          bash tools/fetch-engine.sh App/Frameworks Engine/share
 
       - name: Generate the Xcode project
         run: xcodegen generate --spec project.yml
@@ -74,6 +74,11 @@ jobs:
           if [ -d App/Frameworks ] && [ -n "$(ls -A App/Frameworks)" ]; then
             mkdir -p Payload/MadeiraNext.app/Frameworks
             cp -R App/Frameworks/. Payload/MadeiraNext.app/Frameworks/
+          fi
+          # The firmware, copied to share/ inside the bundle (see fetch-engine.sh).
+          if [ -d Engine/share/qemu ]; then
+            mkdir -p Payload/MadeiraNext.app/share
+            cp -R Engine/share/. Payload/MadeiraNext.app/share/
           fi
           zip -qry dist/MadeiraNext-unsigned.ipa Payload
           rm -rf Payload

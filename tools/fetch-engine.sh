@@ -51,3 +51,15 @@ if [ ! -f "$dest/qemu-aarch64-softmmu.framework/qemu-aarch64-softmmu" ]; then
     exit 1
 fi
 echo "engine framework installed in $dest"
+
+# The firmware lives in share/qemu. It goes to a directory outside App/ so that
+# XcodeGen does not treat 75 MB of firmware as app sources; the packaging step
+# copies it into the bundle as share/. The launcher passes these paths to QEMU.
+share_dest="${2:-Engine/share}"
+mkdir -p "$share_dest"
+cp -R "$sysroot/share/." "$share_dest/"
+if [ ! -f "$share_dest/qemu/edk2-aarch64-code.fd" ]; then
+    echo "::error::the firmware did not land in $share_dest" >&2
+    exit 1
+fi
+echo "firmware installed in $share_dest"
