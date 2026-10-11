@@ -15,6 +15,8 @@ struct MachineListView: View {
     @State private var editing: Machine?
     @State private var isAdding = false
     @State private var loadError: String?
+    @State private var showingConsole = false
+    @ObservedObject private var runtime = MachineRuntime.shared
 
     private let store: MachineStore? = try? MachineStore.defaultStore()
 
@@ -27,14 +29,25 @@ struct MachineListView: View {
                     }
                 }
                 ForEach(machines) { machine in
-                    Button {
-                        editing = machine
-                    } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(machine.name).font(.headline)
-                            Text("\(machine.memoryMB) MB RAM, \(machine.cpuCount) CPUs")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                    HStack {
+                        Button {
+                            editing = machine
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(machine.name).font(.headline)
+                                Text("\(machine.memoryMB) MB RAM, \(machine.cpuCount) CPUs")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        if runtime.state.isRunning && runtime.runningMachine == machine.id {
+                            Button("Console") { showingConsole = true }
+                                .buttonStyle(.bordered)
+                        } else {
+                            Button("Start") { start(machine) }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(runtime.state.isRunning)
                         }
                     }
                 }
@@ -62,6 +75,9 @@ struct MachineListView: View {
                     Label("Add", systemImage: "plus")
                 }
             }
+            .sheet(isPresented: $showingConsole) {
+                MachineConsoleView()
+            }
             .sheet(isPresented: $isAdding) {
                 MachineFormView(title: "New machine", initial: nil) { saved in
                     upsert(saved)
@@ -82,6 +98,16 @@ struct MachineListView: View {
             return "Linux engine found in this build."
         case .missing:
             return "This build has no Linux engine, so machines cannot start yet."
+        }
+    }
+
+    private func start(_ machine: Machine) {
+        do {
+            try runtime.start(machine)
+            showingConsole = true
+            loadError = nil
+        } catch {
+            loadError = error.localizedDescription
         }
     }
 

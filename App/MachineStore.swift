@@ -8,12 +8,25 @@ struct Machine: Identifiable, Codable, Hashable {
     var name: String
     var memoryMB: Int
     var cpuCount: Int
+    /// The disk image this machine boots. Absolute, inside the machine's folder.
+    var imagePath: String?
 
-    init(id: UUID = UUID(), name: String, memoryMB: Int, cpuCount: Int) {
+    init(id: UUID = UUID(), name: String, memoryMB: Int, cpuCount: Int, imagePath: String? = nil) {
         self.id = id
         self.name = name
         self.memoryMB = memoryMB
         self.cpuCount = cpuCount
+        self.imagePath = imagePath
+    }
+
+    /// Decoded without imagePath before it existed, so old files still load.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        memoryMB = try container.decode(Int.self, forKey: .memoryMB)
+        cpuCount = try container.decode(Int.self, forKey: .cpuCount)
+        imagePath = try container.decodeIfPresent(String.self, forKey: .imagePath)
     }
 }
 
