@@ -5,3 +5,11 @@ and Linux desktops (QEMU TCG), with a shared engine layer.
 
 Status: early scaffold. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the
 source map, which records where every copied file came from and under what license.
+
+## Licence
+
+Madeira Next's own code is GPL-3.0-or-later (see `COPYING`).
+
+The files under `upstream/utm/` are copied from UTM and remain Apache-2.0
+(see `upstream/utm/LICENSE`). Apache-2.0 code can be used in a GPL-3.0 project.
+Each copied file keeps its own copyright header.
