@@ -23,3 +23,23 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: 0.1.0
+  MadeiraNextTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: MadeiraNext
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.sheltonsilas.madeiranext.tests
+schemes:
+  MadeiraNext:
+    build:
+      targets:
+        MadeiraNext: all
+        MadeiraNextTests: [test]
+    test:
+      targets:
+        - MadeiraNextTests

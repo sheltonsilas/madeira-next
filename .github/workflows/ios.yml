@@ -12,14 +12,13 @@ permissions:
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
       - name: Select Xcode
         run: |
           set -euo pipefail
-          ls -d /Applications/Xcode*.app
           sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           xcodebuild -version
 
@@ -29,7 +28,18 @@ jobs:
       - name: Generate the Xcode project
         run: xcodegen generate --spec project.yml
 
-      - name: Build for iOS without signing
+      - name: Run the unit tests on a simulator
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project MadeiraNext.xcodeproj \
+            -scheme MadeiraNext \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -derivedDataPath build-test \
+            CODE_SIGNING_ALLOWED=NO \
+            test | tee test.log | tail -n 40
+
+      - name: Build for a device without signing
         run: |
           set -o pipefail
           xcodebuild \
@@ -51,8 +61,7 @@ jobs:
           cp -R "$app" Payload/
           zip -qry dist/MadeiraNext-unsigned.ipa Payload
           rm -rf Payload
-          ls -la dist
-          python3 -c "import zipfile,sys; z=zipfile.ZipFile('dist/MadeiraNext-unsigned.ipa'); bad=z.testzip(); sys.exit(1 if bad else 0)"
+          python3 -c "import zipfile,sys; z=zipfile.ZipFile('dist/MadeiraNext-unsigned.ipa'); sys.exit(1 if z.testzip() else 0)"
 
       - uses: actions/upload-artifact@v4
         with:
