@@ -25,6 +25,16 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Fetch and trim the QEMU engine into the app's Frameworks
+        # Downloaded from the published payload and trimmed to the aarch64 engine
+        # and its dependencies, so the app can find it. Fails the build if the
+        # engine is missing rather than shipping a build that cannot start machines.
+        env:
+          GH_TOKEN: ${{ secrets.PAYLOAD_TOKEN }}
+        run: |
+          set -euo pipefail
+          bash tools/fetch-engine.sh App/Frameworks
+
       - name: Generate the Xcode project
         run: xcodegen generate --spec project.yml
 
@@ -38,16 +48,6 @@ jobs:
             -derivedDataPath build-test \
             CODE_SIGNING_ALLOWED=NO \
             test | tee test.log | tail -n 40
-
-      - name: Fetch and trim the QEMU engine into the app's Frameworks
-        # Downloaded from the published payload and trimmed to the aarch64 engine
-        # and its dependencies, so the app can find it. Fails the build if the
-        # engine is missing rather than shipping a build that cannot start machines.
-        env:
-          GH_TOKEN: ${{ secrets.PAYLOAD_TOKEN }}
-        run: |
-          set -euo pipefail
-          bash tools/fetch-engine.sh App/Frameworks
 
       - name: Build for a device without signing
         run: |
