@@ -69,6 +69,12 @@ jobs:
           test -n "$app"
           rm -rf Payload dist && mkdir -p Payload dist
           cp -R "$app" Payload/
+          # The engine is device-only, so it is copied into the packaged app rather
+          # than linked: linking it into the simulator test build fails.
+          if [ -d App/Frameworks ] && [ -n "$(ls -A App/Frameworks)" ]; then
+            mkdir -p Payload/MadeiraNext.app/Frameworks
+            cp -R App/Frameworks/. Payload/MadeiraNext.app/Frameworks/
+          fi
           zip -qry dist/MadeiraNext-unsigned.ipa Payload
           rm -rf Payload
           python3 -c "import zipfile,sys; z=zipfile.ZipFile('dist/MadeiraNext-unsigned.ipa'); sys.exit(1 if z.testzip() else 0)"
