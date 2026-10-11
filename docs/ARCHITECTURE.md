@@ -68,8 +68,9 @@ Each file keeps its own copyright header.
 |---|---|
 | XcodeGen spec and app target (`project.yml`, `App/`) | done, builds in CI |
 | Machine list: add, edit, delete, validation, JSON persistence (`App/MachineStore.swift`) | done, unit-tested |
+| Engine locator: finds `Frameworks/qemu-aarch64-softmmu.framework` and reports available or missing (`App/EngineLocator.swift`) | done, unit-tested (10 tests pass in run 38134790715) |
 | CI workflow (`.github/workflows/ios.yml`) | done, produces an unsigned IPA |
-| Linux engine launch layer | **not started**; to be built on the copied UTM files |
+| Linux engine launch layer | **started**: the locator exists; the engine itself is not bundled, and nothing launches a guest |
 | Windows engine (Wine/FEX/DXMT) | **not started** |
 | Machine persistence, UI for create/import/export | not started |
 
