@@ -11,7 +11,8 @@ left unlisted.
 | XcodeGen generates the project from `project.yml` | passes in CI |
 | `xcodebuild` builds the `MadeiraNext` target for iOS, signing off | passes in CI (run 38133166284) |
 | Unsigned IPA is packaged and its zip is valid | passes; the IPA holds `Payload/MadeiraNext.app` with bundle id `com.sheltonsilas.madeiranext`, `MinimumOSVersion` 17.0 |
-| The app runs on a device or simulator | **not verified**: no iPhone, iPad, or Mac here |
+| Unit tests (7) pass on an iOS simulator | passes in CI (run 38133548584) |
+| The app runs on a device or simulator | **not verified**: no iPhone, iPad, or Mac here; the tests run in the simulator, but nothing has been driven through the UI |
 
 The IPA is produced by `.github/workflows/ios.yml` and uploaded as the
 `MadeiraNext-unsigned-ipa` artifact. It is unsigned and must be signed on
@@ -19,8 +20,10 @@ install.
 
 ## What the app is today
 
-A SwiftUI scaffold: `App/MadeiraNextApp.swift` shows a list of Linux machines
-with one placeholder entry. Nothing starts a machine yet.
+A SwiftUI app: `App/MadeiraNextApp.swift` shows a list of Linux machines the
+user can add, edit and delete. Machines persist to
+`Application Support/MadeiraNext/machines.json` (atomic writes; a corrupt file is
+reported, never silently discarded). **Nothing starts a machine yet.**
 
 ## Licences
 
@@ -64,6 +67,7 @@ Each file keeps its own copyright header.
 | Component | Status |
 |---|---|
 | XcodeGen spec and app target (`project.yml`, `App/`) | done, builds in CI |
+| Machine list: add, edit, delete, validation, JSON persistence (`App/MachineStore.swift`) | done, unit-tested |
 | CI workflow (`.github/workflows/ios.yml`) | done, produces an unsigned IPA |
 | Linux engine launch layer | **not started**; to be built on the copied UTM files |
 | Windows engine (Wine/FEX/DXMT) | **not started** |
