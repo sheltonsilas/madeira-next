@@ -68,9 +68,10 @@ Each file keeps its own copyright header.
 |---|---|
 | XcodeGen spec and app target (`project.yml`, `App/`) | done, builds in CI |
 | Machine list: add, edit, delete, validation, JSON persistence (`App/MachineStore.swift`) | done, unit-tested |
+| QEMU engine bundled from the published payload (`tools/fetch-engine.sh`, `tools/trim-qemu-sysroot.sh`) | done in CI: run 38137299749 trims the payload 3,087 MiB to 308 MiB and the IPA contains `Frameworks/qemu-aarch64-softmmu.framework` (55 frameworks). **Not run**: no guest has been started. |
 | Engine locator: finds `Frameworks/qemu-aarch64-softmmu.framework` and reports available or missing (`App/EngineLocator.swift`) | done, unit-tested (10 tests pass in run 38134790715) |
 | CI workflow (`.github/workflows/ios.yml`) | done, produces an unsigned IPA |
-| Linux engine launch layer | **started**: the locator exists; the engine itself is not bundled, and nothing launches a guest |
+| Linux engine launch layer | **started**: the engine is bundled and located; nothing launches a guest yet |
 | Windows engine (Wine/FEX/DXMT) | **not started** |
 | Machine persistence, UI for create/import/export | not started |
 
@@ -97,3 +98,9 @@ Each file keeps its own copyright header.
 - Copying UTM's launcher and configuration code does not make the engine work
   on iOS. Each piece has to be built and checked.
 - The iOS app cannot be checked for crashes without a device.
+
+## Third-party code brought in by the engine payload
+
+The engine is not built here. `tools/fetch-engine.sh` downloads Madeira's published `qemu-ios-tci-arm64.tar.gz` payload, which bundles QEMU (GPL-2.0), glib, gstreamer, spice, openssl, and others, each under its own licence. The payload's own licence files (for example `share/qemu/edk2-licenses.txt`, EDK2 firmware under BSD-2-Clause-Patent) are the reference; this repository does not relicense them.
+
+`tools/trim-qemu-sysroot.sh` is a copy of Madeira's `build/ci/trim-qemu-sysroot.sh` (GPL-3.0-or-later, same author), so it is GPL-3.0-or-later like the rest of the app's own code.
