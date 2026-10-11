@@ -39,6 +39,16 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             test | tee test.log | tail -n 40
 
+      - name: Fetch and trim the QEMU engine into the app's Frameworks
+        # Downloaded from the published payload and trimmed to the aarch64 engine
+        # and its dependencies, so the app can find it. Fails the build if the
+        # engine is missing rather than shipping a build that cannot start machines.
+        env:
+          GH_TOKEN: ${{ secrets.PAYLOAD_TOKEN }}
+        run: |
+          set -euo pipefail
+          bash tools/fetch-engine.sh App/Frameworks
+
       - name: Build for a device without signing
         run: |
           set -o pipefail
@@ -62,6 +72,7 @@ jobs:
           zip -qry dist/MadeiraNext-unsigned.ipa Payload
           rm -rf Payload
           python3 -c "import zipfile,sys; z=zipfile.ZipFile('dist/MadeiraNext-unsigned.ipa'); sys.exit(1 if z.testzip() else 0)"
+          python3 -c "import zipfile,sys; names=zipfile.ZipFile('dist/MadeiraNext-unsigned.ipa').namelist(); need='Payload/MadeiraNext.app/Frameworks/qemu-aarch64-softmmu.framework/qemu-aarch64-softmmu'; sys.exit(0 if need in names else 1)"
 
       - uses: actions/upload-artifact@v4
         with:
