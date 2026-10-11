@@ -46,6 +46,14 @@ struct MachineListView: View {
                                            description: Text("Tap + to add a Linux machine."))
                 }
             }
+            .safeAreaInset(edge: .bottom) {
+                Text(engineMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(8)
+                    .background(.bar)
+            }
             .navigationTitle("Machines")
             .toolbar {
                 Button {
@@ -66,6 +74,15 @@ struct MachineListView: View {
             }
         }
         .task { load() }
+    }
+
+    private var engineMessage: String {
+        switch EngineLocator.status() {
+        case .available:
+            return "Linux engine found in this build."
+        case .missing:
+            return "This build has no Linux engine, so machines cannot start yet."
+        }
     }
 
     private func load() {
