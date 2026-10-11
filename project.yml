@@ -14,13 +14,13 @@ targets:
     platform: iOS
     sources:
       - path: App
-      # The QEMU engine and its dependencies, fetched by tools/fetch-engine.sh.
-      # Embedded as frameworks so they land in the bundle's Frameworks/ directory,
-      # which is where EngineLocator looks.
-      - path: App/Frameworks
-        buildPhase: copy_files
-        destination: frameworks
-        optional: true
+    # The QEMU engine and its dependencies, fetched by tools/fetch-engine.sh into
+    # App/Frameworks. Listed as frameworks and embedded so they land in the
+    # bundle's Frameworks/ directory, which is where EngineLocator looks.
+    dependencies:
+      - framework: App/Frameworks/qemu-aarch64-softmmu.framework
+        embed: true
+        codeSign: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sheltonsilas.madeiranext
