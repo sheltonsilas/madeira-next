@@ -40,14 +40,27 @@ jobs:
 
       - name: Run the unit tests on a simulator
         run: |
-          set -o pipefail
-          xcodebuild \
+          # The full log is written to test.log first and the failures are
+          # printed from it, so a failing test reports its own assertion instead
+          # of being cut off by a tail. The pipeline's status is preserved.
+          set -euo pipefail
+          if xcodebuild \
             -project MadeiraNext.xcodeproj \
             -scheme MadeiraNext \
             -destination 'platform=iOS Simulator,name=iPhone 16' \
             -derivedDataPath build-test \
             CODE_SIGNING_ALLOWED=NO \
-            test | tee test.log | tail -n 40
+            test > test.log 2>&1
+          then
+            grep -E 'Executed [0-9]+ tests' test.log | tail -n 3
+          else
+            status=$?
+            echo '--- failing tests ---'
+            grep -E "Test Case .* failed|XCTAssert.*failed|error:" test.log | head -n 60 || true
+            echo '--- last lines ---'
+            tail -n 30 test.log
+            exit $status
+          fi
 
       - name: Build for a device without signing
         run: |
