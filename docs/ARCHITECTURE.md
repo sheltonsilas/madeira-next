@@ -16,7 +16,7 @@ left unlisted.
 | The IPA can load its engine: the engine exports `qemu_init`, `qemu_main_loop`, `qemu_cleanup`, and every `@rpath` dependency of all 55 bundled frameworks is in the archive | passes in CI (`tools/check_ipa_bundle.py`, run 38205810052: 55 frameworks, 0 unresolved references, 0 problems). Checked against a sabotaged IPA with glib removed, which it fails with 31 unresolved references. |
 | An IPA that can be signed and installed | passes: the artifact is a device-only arm64 app with no signature of its own. **Not installed anywhere**: no Apple ID or device is available here. |
 | The IPA is obtainable without this machine | passes and was exercised twice: run 38265087905 published commit `f09384c` to the `ipa-latest` release, then a later push republished `3e90487` over it (run 38266335261) with no manual step, and `tools/fetch_latest_ipa.py --require-head` took that copy and matched the sha256 the release publishes. The nightly `schedule` trigger is committed but has not fired yet, so only the push path is proven |
-| The boot recipe starts a guest | passes: run 38276446514 ran the argument vector the app's own builder produces under a host QEMU, and the guest reached `UEFI Interactive Shell v2.2` and `UEFI v2.70 (EDK II, 0x00010000)` in 65.4s, then quit through the monitor with status 0. It is the recipe, the firmware and the bundle layout that are verified here, not the engine: a device-only framework cannot be loaded on a runner. |
+| The boot recipe starts a guest | passes twice: runs 38276446514 and 38277229801 ran the argument vector the app's own builder produces under a host QEMU, and each guest reached `UEFI Interactive Shell v2.2` and `UEFI v2.70 (EDK II, 0x00010000)` - in 65.4s and 66.8s - then quit through the monitor with status 0. It is the recipe, the firmware and the bundle layout that are verified here, not the engine: a device-only framework cannot be loaded on a runner. |
 | A guest boots inside the app | **not verified**: nothing has ever `dlopen`ed the engine, so the engine's own load path and the app's boot remain unexercised. The recipe under them is now verified |
 | The app runs on a device or simulator | **not verified**: no iPhone, iPad, or Mac here; the tests run in the simulator, but nothing has been driven through the UI |
 
@@ -64,9 +64,10 @@ The `boot-smoke` job is the only one here that runs a guest, and unlike packagin
 it can fail because the boot recipe itself is wrong. It is the answer to "does a
 machine start" that does not depend on this laptop: the job runs on GitHub's
 runners, on the same nightly `schedule` as the IPA, so the question is asked again
-by a machine that never sleeps. What is verified is the job itself - two real runs,
-one of which failed for the right reason - not the clock: as noted above, the
-schedule has not fired yet.
+by a machine that never sleeps. What is verified is the job itself - three real
+runs, one of which failed for the right reason and two of which booted, in 65.4s
+and 66.8s, with the same firmware hash both times - not the clock: as noted above,
+the schedule has not fired yet.
 
 The argument vector is not written down twice. `tools/boot_smoke.py` reads it out
 of the launch test's log - `testArgumentVectorForTheBootSmoke` prints the output of
