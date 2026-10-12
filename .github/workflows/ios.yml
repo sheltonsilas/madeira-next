@@ -184,8 +184,13 @@ jobs:
       - name: Move the rolling release onto this build
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # GH_REPO names the repository for every gh call below. Without it gh
+          # looks for a git remote, and this job deliberately never checks the
+          # repository out - it only needs the artifact the build job uploaded -
+          # so gh failed with "not a git repository".
           tag=ipa-latest
           short=${GITHUB_SHA:0:7}
           # A quoted heredoc, so nothing in the text is expanded: the notes
