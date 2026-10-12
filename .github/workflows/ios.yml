@@ -38,6 +38,33 @@ jobs:
       - name: Generate the Xcode project
         run: xcodegen generate --spec project.yml
 
+      - name: Choose an iOS simulator
+        # Not a hardcoded device name: the runner images do not all carry the
+        # same simulators, and "iPhone 16" was absent on one, which failed the
+        # run before a single test compiled.
+        run: |
+          set -euo pipefail
+          udid=$(xcrun simctl list devices available --json | python3 -c '
+import json, sys
+devices = json.load(sys.stdin)["devices"]
+candidates = []
+for runtime, entries in devices.items():
+    if "iOS" not in runtime:
+        continue
+    for entry in entries:
+        if entry.get("isAvailable") and entry["name"].startswith("iPhone"):
+            candidates.append((runtime, entry["udid"]))
+candidates.sort()
+print(candidates[-1][1] if candidates else "")
+')
+          if [ -z "$udid" ]; then
+            echo "::error::this runner has no available iPhone simulator"
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
+          echo "using simulator $udid"
+
       - name: Run the unit tests on a simulator
         run: |
           # The full log is written to test.log first and the failures are
@@ -47,7 +74,7 @@ jobs:
           if xcodebuild \
             -project MadeiraNext.xcodeproj \
             -scheme MadeiraNext \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination "id=$SIMULATOR_UDID" \
             -derivedDataPath build-test \
             CODE_SIGNING_ALLOWED=NO \
             test > test.log 2>&1
@@ -55,7 +82,7 @@ jobs:
             grep -E 'Executed [0-9]+ tests' test.log | tail -n 3
           else
             status=$?
-            echo '--- failing tests ---'
+            echo '--- failures ---'
             # -h: the assertion text, not the grep command echoed back.
             grep -hE "Test Case .* failed|XCTAssert.*failed|error:" test.log | head -n 60 || true
             echo '--- last lines ---'
