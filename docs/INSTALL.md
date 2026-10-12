@@ -19,6 +19,10 @@ The workflow also runs on a nightly `schedule`. That build runs on GitHub's own
 runners, not on anyone's laptop, so an IPA keeps being produced while the machine
 that asked for one is asleep, closed, or off.
 
+One caveat worth knowing: GitHub disables a scheduled workflow after 60 days with
+no repository activity. Any push clears that, and so does starting the workflow by
+hand, so it only goes quiet if the repository does.
+
 The build is **device-only** (`LC_BUILD_VERSION` platform `ios`, arm64) and
 requires **iOS 17.0** or later.
 

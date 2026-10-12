@@ -15,7 +15,7 @@ left unlisted.
 | The QEMU engine and the aarch64 UEFI firmware are in the packaged IPA | passes in CI (run 38142473546): `Frameworks/qemu-aarch64-softmmu.framework` and `share/qemu/edk2-aarch64-code.fd` are in the archive |
 | The IPA can load its engine: the engine exports `qemu_init`, `qemu_main_loop`, `qemu_cleanup`, and every `@rpath` dependency of all 55 bundled frameworks is in the archive | passes in CI (`tools/check_ipa_bundle.py`, run 38205810052: 55 frameworks, 0 unresolved references, 0 problems). Checked against a sabotaged IPA with glib removed, which it fails with 31 unresolved references. |
 | An IPA that can be signed and installed | passes: the artifact is a device-only arm64 app with no signature of its own. **Not installed anywhere**: no Apple ID or device is available here. |
-| The IPA is obtainable without this machine | passes: the `publish` job puts it on the `ipa-latest` release, which does not expire, and a nightly `schedule` rebuilds it on GitHub's runners, so producing the deliverable no longer depends on any laptop being awake |
+| The IPA is obtainable without this machine | passes and was exercised: run 38265087905 published commit `f09384c` to the `ipa-latest` release, and `tools/fetch_latest_ipa.py --require-head` took that copy and matched its published sha256. The nightly `schedule` trigger is committed but has not fired yet, so only the publish path is proven |
 | A guest boots | **not verified**: the launcher is written and its argument vector is unit-tested, but nothing has loaded the engine or started a guest |
 | The app runs on a device or simulator | **not verified**: no iPhone, iPad, or Mac here; the tests run in the simulator, but nothing has been driven through the UI |
 
@@ -28,22 +28,34 @@ than on any laptop, so it happens with the machine that asked for it asleep or
 off. It is unsigned and must be signed on install; `docs/INSTALL.md` covers
 signing it onto a device and what a machine does once it runs.
 
-The artifact from run 38211725437 (commit `1b44a36`, the current `main`) was
-downloaded and checked directly: 43,461,166 bytes, sha256
+Run 38211725437 (commit `1b44a36`) produced an IPA that was downloaded and checked
+directly: 43,461,166 bytes, sha256
 `a29cb5c1a67bfcf8e7cea02263986bddefa52606884c483c0ff1f7ed7bc878ad`, 320 entries,
 valid zip, the engine and both firmware files present, `LC_BUILD_VERSION`
 platform `ios` (device, not simulator), and no `_CodeSignature` or
 `embedded.mobileprovision`, so it is ready to re-sign. `tools/fetch_latest_ipa.py
---require-head` reproduces that file from the run byte-for-byte, which is what
-makes the checksum above a claim about the artifact rather than about a copy.
+--require-head` reproduced that file from the run byte-for-byte, which is what
+makes a checksum here a claim about the artifact rather than about a copy.
+
+The `publish` job ran for real on commit `f09384c` (run 38265087905) and put a
+43,461,166-byte IPA, its sha256
+`70582f7ee3812c686206a09a5bd738afb8a8dc5ba8ac5002ec58d364534b0da8`, and a
+`build-info.json` naming that commit on the `ipa-latest` release. Fetching at that
+commit with `--require-head` then took the release path, and the file it landed
+matched the release's published checksum exactly and passed
+`tools/check_ipa_bundle.py` (55 frameworks, 0 unresolved references). The first
+attempt at this failed at the last step - `gh` had no git remote to infer the
+repository from inside a job that never checks the repository out - which is the
+kind of failure that leaves a green-looking pipeline with nothing published; the
+job now names the repository with `GH_REPO`.
 
 GitHub deletes an artifact 14 days after upload, so a green run is not on its own
-a durable deliverable. Two things close that: the `publish` job puts the IPA, its
-sha256 and a `build-info.json` naming the commit on the non-expiring `ipa-latest`
-release, and `tools/fetch_latest_ipa.py` fetches from that release (falling back to
-the artifacts) and verifies what it got; `docs/INSTALL.md` has the usage and the
-exit codes. Neither depends on an editing session, or on this machine being
-powered on.
+a durable deliverable. Two things close that, and both are exercised rather than
+assumed: the `publish` job puts the IPA, its sha256 and a `build-info.json` naming
+the commit on the non-expiring `ipa-latest` release, and `tools/fetch_latest_ipa.py`
+fetches from that release (falling back to the artifacts) and verifies what it got;
+`docs/INSTALL.md` has the usage and the exit codes. Neither depends on an editing
+session, or on this machine being powered on.
 
 ## What the app is today
 

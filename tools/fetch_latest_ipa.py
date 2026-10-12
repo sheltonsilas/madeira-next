@@ -374,11 +374,12 @@ def main() -> int:
             say(f"release {args.release_tag} has no {IPA_ASSET} asset; "
                 "falling back to artifacts")
             release_body = None
-        elif head is not None and published_commit(release_body, token) != head:
+        elif head is not None:
             built = published_commit(release_body, token)
-            say(f"release {args.release_tag} was built from {str(built)[:12]}, "
-                f"not {head[:12]}; falling back to artifacts")
-            release_body = None
+            if built != head:
+                say(f"release {args.release_tag} was built from {str(built)[:12]}, "
+                    f"not {head[:12]}; falling back to artifacts")
+                release_body = None
 
     if release_body is not None:
         ipa_asset = asset(release_body, IPA_ASSET)
@@ -398,7 +399,12 @@ def main() -> int:
             print(f"the download failed: {error}", file=sys.stderr)
             return EXIT_VERIFY
     else:
-        if args.source == "release" and release_body is None:
+        if args.source == "release":
+            # --source release was asked to take the release and nothing else, and
+            # the only way to arrive here with a release in hand is a commit
+            # mismatch, so say which commit it holds rather than exiting mute.
+            print(f"release {args.release_tag} does not hold a build of "
+                  f"{(head or 'this commit')[:12]}", file=sys.stderr)
             return EXIT_NONE
         deadline = time.monotonic() + args.timeout * 60
         artifact = pick(args.repo, args.artifact, token, head)
