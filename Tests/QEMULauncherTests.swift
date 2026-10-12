@@ -79,7 +79,11 @@ final class QEMULauncherTests: XCTestCase {
             monitorPath: "/MADEIRA_SMOKE/monitor.sock",
             consolePath: "/MADEIRA_SMOKE/console.sock")
 
-        let data = try JSONSerialization.data(withJSONObject: argv, options: [.sortedKeys])
+        // withoutEscapingSlashes matters: the default escapes every "/" as "\/",
+        // which the parser would undo and which made the first version of this
+        // test fail on an assertion about its own output.
+        let data = try JSONSerialization.data(
+            withJSONObject: argv, options: [.sortedKeys, .withoutEscapingSlashes])
         let json = String(decoding: data, as: UTF8.self)
         // A vector that no longer mentions the placeholder paths would let the
         // smoke test boot something other than what this builder makes.

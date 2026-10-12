@@ -18,6 +18,14 @@ of the same strings that drifts. The test's paths are under /MADEIRA_SMOKE and
 are rewritten to this run's working directory, which is the only thing the script
 changes about them.
 
+The machine's folder is built the way the app builds it, which means the writable
+EFI variable bank is made here too: the bundle's varstore is a few hundred
+kilobytes while the flash bank QEMU hands its firmware is the size of the code
+image, and a short bank is not a warning but a refusal to start. That is
+`WritableFirmwareVars` in App/MachineRuntime.swift, mirrored here; a first
+version of this script copied the template raw and the guest never started, which
+is how the size rule came to be written down in two places with a test on each.
+
 It is honest about what it does and does not prove. It loads a host QEMU, not the
 iOS engine framework: an iOS device binary cannot be dlopened on the runner, so
 the claim it supports is about the recipe, the firmware and the machine layout.
@@ -108,7 +116,7 @@ def digest(path: pathlib.Path) -> str:
 
 
 def prepare(work: pathlib.Path, firmware_dir: pathlib.Path, argv: list) -> dict:
-    """Build the machine's folder, matching the layout the app ships.
+    """Build the machine's folder the way the app builds it.
 
     `share/qemu` is where the app keeps its firmware inside the bundle and what
     the launcher points `-L` at, so the smoke reproduces that layout rather than
@@ -116,45 +124,83 @@ def prepare(work: pathlib.Path, firmware_dir: pathlib.Path, argv: list) -> dict:
     payload's own bytes, which are also the bytes inside the IPA.
     """
     code = firmware_dir / "qemu" / "edk2-aarch64-code.fd"
-    varstore = firmware_dir / "qemu" / "edk2-arm-vars.fd"
-    for path in (code, varstore):
+    template = firmware_dir / "qemu" / "edk2-arm-vars.fd"
+    for path in (code, template):
         if not path.is_file():
-            raise FileNotFoundError(f"no firmware at {path}: pass --firmware-dir <dir holding qemu/>")
+            raise FileNotFoundError(
+                f"no firmware at {path}: pass --firmware-dir <dir holding qemu/>")
 
     work.mkdir(parents=True, exist_ok=True)
     share_qemu = work / "share" / "qemu"
-    share_qemu.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(code, share_qemu / code.name)
-    shutil.copyfile(varstore, share_qemu / varstore.name)
+    if share_qemu.exists():
+        shutil.rmtree(share_qemu)
+    shutil.copytree(firmware_dir / "qemu", share_qemu)
+    code_in_place = share_qemu / code.name
 
-    # UEFI writes its variables, so the varstore has to be a fresh writable copy
-    # rather than the readonly payload file. It is recreated each run so a pass
-    # never depends on state left by an earlier one.
-    efi_vars = work / "efi-vars.fd"
-    efi_vars.unlink(missing_ok=True)
-    shutil.copyfile(varstore, efi_vars)
-
+    # A disk with nothing bootable on it: the firmware gets as far as its own
+    # shell, which is what "a guest started" means without a distribution to
+    # install. Kept between runs so its contents are never a variable.
     disk = work / "disk.raw"
     if not disk.exists():
         with open(disk, "wb") as handle:
             handle.truncate(DISK_BYTES)
 
-    # The vector has to name these paths, or the smoke is not booting the layout
-    # it just built - which would make a green result mean nothing. The readonly
-    # varstore is deliberately not in the list: the builder passes the writable
-    # copy in the machine's folder and never names the payload file, so requiring
-    # it here would fail on a correct vector. It is still copied, because the
-    # bundle ships the pair and the launcher checks for both.
-    expected = [share_qemu / code.name, efi_vars, disk]
-    joined = "\n".join(argv)
-    missing = [path.as_posix() for path in expected if path.as_posix() not in joined]
+    # The writable variable bank, only if this vector asks for one: the app omits
+    # the second pflash drive entirely when the bundle has no varstore template.
+    bank_size = code_in_place.stat().st_size
+    writable = None
+    for path in named_files(argv, work):
+        if path.name == "efi-vars.fd":
+            writable = writable_varstore(template, bank_size, path)
+
+    # Everything the vector names has to be here. A path it names that this run
+    # did not prepare means the test's placeholder layout and this script's have
+    # drifted apart, and a boot in that state would be a boot of something else.
+    missing = [path.as_posix() for path in named_files(argv, work) if not path.is_file()]
     if missing:
         raise ValueError(
-            "the argument vector does not mention the files this run prepared, so the "
-            "test's placeholder layout and this script's have drifted apart: "
-            + ", ".join(missing))
+            "the argument vector names files this run did not prepare, so the test's "
+            "placeholder layout and this script's have drifted apart: " + ", ".join(missing))
 
-    return {"code": code, "varstore": varstore, "disk": disk}
+    return {"code": code_in_place, "template": template, "disk": disk,
+            "writable": writable, "bank_size": bank_size}
+
+
+def named_files(argv: list, work: pathlib.Path) -> list:
+    """Files under the machine's folder that the vector expects to exist.
+
+    The vector is the source of truth for what has to be on disk, so the paths
+    are read out of it rather than listed here: a file the app starts naming and
+    this script does not prepare is then a failure about the app, not a guess.
+    Sockets are skipped by their suffix - they are created by QEMU, not by us.
+    """
+    suffixes = (".fd", ".raw", ".qcow2", ".img", ".iso", ".bin")
+    root = work.as_posix()
+    found = []
+    for item in argv:
+        for token in re.split(r"[=,]", item):
+            if token.startswith(root + "/") and token.endswith(suffixes) and token not in found:
+                found.append(token)
+    return [pathlib.Path(token) for token in found]
+
+
+def writable_varstore(template: pathlib.Path, bank_size: int, target: pathlib.Path) -> pathlib.Path:
+    """The writable EFI variable bank, made the way the app makes it.
+
+    Mirrors WritableFirmwareVars.url(for:flashSize:in:) in App/MachineRuntime.swift:
+    an existing bank that is already large enough is kept, and otherwise the
+    template is written and the file extended to `bank_size`, which fills the tail
+    with zeroes. A bank shorter than the device is refused by QEMU with "device
+    ... requires N bytes, pflash1 block backend provides M".
+    """
+    if target.exists() and target.stat().st_size >= bank_size:
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    data = template.read_bytes()
+    with open(target, "wb") as handle:
+        handle.write(data)
+        handle.truncate(bank_size)
+    return target
 
 
 def wait_for_socket(path: pathlib.Path, process: subprocess.Popen, timeout: float) -> None:
@@ -250,8 +296,15 @@ def main() -> int:
         return EXIT_INPUT
 
     print(f"machine folder: {work}")
-    print(f"firmware code:  {files['code']} sha256 {digest(files['code'])}")
-    print(f"firmware vars:  {files['varstore']} sha256 {digest(files['varstore'])}")
+    print(f"firmware code:  {files['code']} ({files['code'].stat().st_size} bytes) "
+          f"sha256 {digest(files['code'])}")
+    print(f"varstore template: {files['template']} ({files['template'].stat().st_size} bytes)")
+    if files["writable"] is not None:
+        print(f"writable varstore: {files['writable']} "
+              f"({files['writable'].stat().st_size} bytes, the template extended to the "
+              f"{files['bank_size']}-byte bank, as WritableFirmwareVars does)")
+    else:
+        print("writable varstore: none - this vector has no second pflash drive")
     print(f"command: {' '.join(rewritten)}")
     if args.dry_run:
         print("dry run: the vector rewrites onto files that exist; QEMU was not started")
