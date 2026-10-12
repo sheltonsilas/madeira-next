@@ -13,6 +13,7 @@ left unlisted.
 | Unsigned IPA is packaged and its zip is valid | passes; the IPA holds `Payload/MadeiraNext.app` with bundle id `com.sheltonsilas.madeiranext`, `MinimumOSVersion` 17.0 |
 | Unit tests (24) pass on an iOS simulator | passes in CI (run 38201427692) |
 | The QEMU engine and the aarch64 UEFI firmware are in the packaged IPA | passes in CI (run 38142473546): `Frameworks/qemu-aarch64-softmmu.framework` and `share/qemu/edk2-aarch64-code.fd` are in the archive |
+| The IPA can load its engine: the engine exports `qemu_init`, `qemu_main_loop`, `qemu_cleanup`, and every `@rpath` dependency of all 55 bundled frameworks is in the archive | passes in CI (`tools/check_ipa_bundle.py`, run 38203525663: 55 frameworks, 0 unresolved). Checked against a sabotaged IPA with glib removed, which it fails with 31 unresolved references. |
 | A guest boots | **not verified**: the launcher is written and its argument vector is unit-tested, but nothing has loaded the engine or started a guest |
 | The app runs on a device or simulator | **not verified**: no iPhone, iPad, or Mac here; the tests run in the simulator, but nothing has been driven through the UI |
 
@@ -88,6 +89,7 @@ Each file keeps its own copyright header.
 | CI workflow (`.github/workflows/ios.yml`) | done, produces an unsigned IPA |
 | Firmware bundling: `share/qemu` is copied into the bundle beside `Frameworks/` (`tools/fetch-engine.sh`, `.github/workflows/ios.yml`) | done in CI |
 | QEMU launcher: argument vector, firmware and blocker checks, per-machine writable EFI variables (`App/QEMULauncher.swift`) | done; the argument vector, image handling and vars extension are unit-tested |
+| Engine loadability check for the packaged IPA (`tools/check_ipa_bundle.py`) | done; run in CI, and verified to fail a sabotaged IPA |
 | Machine runtime: start, stop through QEMU's monitor, console capture to `Documents/linux-engine.log`, disk-image import (`App/MachineRuntime.swift`) | done; vars extension and image-name sanitizing are unit-tested. **The engine has never actually been loaded.** |
 | Machine UI: Start, Console screen, disk-image picker (`App/MadeiraNextApp.swift`, `App/ConsoleView.swift`) | done, not exercised outside the simulator |
 | Guest display (framebuffer into a Metal view) | **not started** |
@@ -103,8 +105,12 @@ Each file keeps its own copyright header.
    cannot exercise it.
 2. Draw the guest's framebuffer. Add `-device virtio-gpu-pci`, read its scanout
    and present it in a Metal view; the argument builder and the runtime are the
-   places this attaches to.
-3. The Windows side is a separate effort (Wine, FEX, DXMT), not started.
+   places this attaches to. Madeira's Windows side solved this with a Metal host
+   view, which is the reference.
+3. JIT onboarding (StikDebug, `csops` detection, the onboarding screen). Not
+   needed for this engine: the payload is TCG-interpreter-only, so it has no JIT
+   to enable. It becomes necessary if a JIT-capable engine is added.
+4. The Windows side is a separate effort (Wine, FEX, DXMT), not started.
 
 ## Open decisions
 
