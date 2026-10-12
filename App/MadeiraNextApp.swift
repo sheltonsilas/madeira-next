@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 @main
 struct MadeiraNextApp: App {
@@ -16,6 +17,7 @@ struct MachineListView: View {
     @State private var isAdding = false
     @State private var loadError: String?
     @State private var showingConsole = false
+    @State private var importing: Machine?
     @ObservedObject private var runtime = MachineRuntime.shared
 
     private let store: MachineStore? = try? MachineStore.defaultStore()
@@ -49,6 +51,17 @@ struct MachineListView: View {
                                 .buttonStyle(.borderedProminent)
                                 .disabled(runtime.state.isRunning)
                         }
+                        Menu {
+                            Button("Choose disk image…") { importing = machine }
+                            if machine.imagePath != nil {
+                                Button("Clear disk image", role: .destructive) {
+                                    clearImage(machine)
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .disabled(runtime.state.isRunning)
                     }
                 }
                 .onDelete(perform: delete)
@@ -77,6 +90,12 @@ struct MachineListView: View {
             }
             .sheet(isPresented: $showingConsole) {
                 MachineConsoleView()
+            }
+            .fileImporter(isPresented: Binding(get: { importing != nil },
+                                               set: { if !$0 { importing = nil } }),
+                          allowedContentTypes: MachineImage.extensions.compactMap { UTType(filenameExtension: $0) },
+                          allowsMultipleSelection: false) { result in
+                handleImport(result)
             }
             .sheet(isPresented: $isAdding) {
                 MachineFormView(title: "New machine", initial: nil) { saved in
@@ -109,6 +128,30 @@ struct MachineListView: View {
         } catch {
             loadError = error.localizedDescription
         }
+    }
+
+    private func handleImport(_ result: Result<[URL], Error>) {
+        guard let machine = importing else { return }
+        importing = nil
+        do {
+            guard let url = try result.get().first else {
+                loadError = "No disk image was chosen."
+                return
+            }
+            let path = try MachineImage.importImage(from: url, for: machine.id)
+            var updated = machine
+            updated.imagePath = path
+            upsert(updated)
+            loadError = nil
+        } catch {
+            loadError = "The disk image could not be imported: \(error.localizedDescription)"
+        }
+    }
+
+    private func clearImage(_ machine: Machine) {
+        var updated = machine
+        updated.imagePath = nil
+        upsert(updated)
     }
 
     private func load() {

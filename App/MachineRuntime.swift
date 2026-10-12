@@ -20,6 +20,42 @@ enum MachineDirectory {
     }
 }
 
+/// Copies a disk image the user picked into the machine's own folder.
+///
+/// Copied rather than referenced: the picker hands back a security-scoped URL
+/// that is only valid for the life of the callback, and a machine whose disk
+/// image can vanish with a document provider is a machine that fails to boot
+/// once, days later, with no explanation.
+enum MachineImage {
+    static let extensions = ["iso", "qcow2", "img", "raw"]
+
+    /// Import `source` for the machine, returning the stored path.
+    static func importImage(from source: URL, for machineID: UUID) throws -> String {
+        let scoped = source.startAccessingSecurityScopedResource()
+        defer { if scoped { source.stopAccessingSecurityScopedResource() } }
+
+        let folder = try MachineDirectory.forMachine(id: machineID)
+        let name = sanitized(source.lastPathComponent)
+        let destination = folder.appendingPathComponent(name)
+        // Replacing is deliberate: re-picking a corrected image for the same
+        // name is the common case, and the image editor is per machine.
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        try FileManager.default.copyItem(at: source, to: destination)
+        return destination.path
+    }
+
+    /// A file name safe to join onto a folder: no separators, no dot-dot.
+    static func sanitized(_ raw: String) -> String {
+        let cleaned = raw.replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "\\", with: "_")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.isEmpty || cleaned == ".." || cleaned == "." { return "disk.img" }
+        return cleaned
+    }
+}
+
 /// EFI variables, written per machine.
 ///
 /// The bundle's `edk2-arm-vars.fd` is a *template* - a few hundred kilobytes of

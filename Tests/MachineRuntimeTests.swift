@@ -70,6 +70,16 @@ final class MachineRuntimeTests: XCTestCase {
         }
     }
 
+    /// A picked file name is joined onto the machine's folder, so separators and
+    /// traversal are removed rather than trusted.
+    func testImageNamesAreMadeSafeToJoin() {
+        XCTAssertEqual(MachineImage.sanitized("ubuntu-24.04.iso"), "ubuntu-24.04.iso")
+        XCTAssertEqual(MachineImage.sanitized("../../etc/passwd"), ".._.._etc_passwd")
+        XCTAssertEqual(MachineImage.sanitized("a\\b.img"), "a_b.img")
+        XCTAssertEqual(MachineImage.sanitized("   "), "disk.img")
+        XCTAssertEqual(MachineImage.sanitized(".."), "disk.img")
+    }
+
     func testMachineWithoutImagePathStillDecodes() throws {
         let json = #"[{"id":"\#(UUID().uuidString)","name":"m","memoryMB":2048,"cpuCount":2}]"#
         let machines = try JSONDecoder().decode([Machine].self, from: Data(json.utf8))
