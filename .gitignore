@@ -12,3 +12,7 @@ App/Frameworks/
 # Packaged output (the CI workflow builds it; the IPA is ~43 MB)
 dist/
 Payload/
+
+# Python bytecode from the tools in tools/
+__pycache__/
+*.pyc

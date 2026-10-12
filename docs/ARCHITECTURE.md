@@ -15,16 +15,35 @@ left unlisted.
 | The QEMU engine and the aarch64 UEFI firmware are in the packaged IPA | passes in CI (run 38142473546): `Frameworks/qemu-aarch64-softmmu.framework` and `share/qemu/edk2-aarch64-code.fd` are in the archive |
 | The IPA can load its engine: the engine exports `qemu_init`, `qemu_main_loop`, `qemu_cleanup`, and every `@rpath` dependency of all 55 bundled frameworks is in the archive | passes in CI (`tools/check_ipa_bundle.py`, run 38205810052: 55 frameworks, 0 unresolved references, 0 problems). Checked against a sabotaged IPA with glib removed, which it fails with 31 unresolved references. |
 | An IPA that can be signed and installed | passes: the artifact is a device-only arm64 app with no signature of its own. **Not installed anywhere**: no Apple ID or device is available here. |
+| The IPA is obtainable without this machine | passes: the `publish` job puts it on the `ipa-latest` release, which does not expire, and a nightly `schedule` rebuilds it on GitHub's runners, so producing the deliverable no longer depends on any laptop being awake |
 | A guest boots | **not verified**: the launcher is written and its argument vector is unit-tested, but nothing has loaded the engine or started a guest |
 | The app runs on a device or simulator | **not verified**: no iPhone, iPad, or Mac here; the tests run in the simulator, but nothing has been driven through the UI |
 
-The IPA is produced by `.github/workflows/ios.yml` and uploaded as the
-`MadeiraNext-unsigned-ipa` artifact. It is unsigned and must be signed on
-install; `docs/INSTALL.md` covers signing it onto a device and what a machine
-does once it runs. The artifact on run 38206838071 was downloaded and checked
-directly: 320 entries, valid zip, engine and both firmware files present,
-`LC_BUILD_VERSION` platform `ios` (device, not simulator), and no
-`_CodeSignature` or `embedded.mobileprovision`, so it is ready to re-sign.
+The IPA is produced by `.github/workflows/ios.yml` and published to the
+`ipa-latest` release, with the same build uploaded as the
+`MadeiraNext-unsigned-ipa` artifact. The release is the durable copy: a release
+asset does not expire, whereas an artifact is deleted after 14 days. The workflow
+also runs on a nightly `schedule`, which is a build on GitHub's runners rather
+than on any laptop, so it happens with the machine that asked for it asleep or
+off. It is unsigned and must be signed on install; `docs/INSTALL.md` covers
+signing it onto a device and what a machine does once it runs.
+
+The artifact from run 38211725437 (commit `1b44a36`, the current `main`) was
+downloaded and checked directly: 43,461,166 bytes, sha256
+`a29cb5c1a67bfcf8e7cea02263986bddefa52606884c483c0ff1f7ed7bc878ad`, 320 entries,
+valid zip, the engine and both firmware files present, `LC_BUILD_VERSION`
+platform `ios` (device, not simulator), and no `_CodeSignature` or
+`embedded.mobileprovision`, so it is ready to re-sign. `tools/fetch_latest_ipa.py
+--require-head` reproduces that file from the run byte-for-byte, which is what
+makes the checksum above a claim about the artifact rather than about a copy.
+
+GitHub deletes an artifact 14 days after upload, so a green run is not on its own
+a durable deliverable. Two things close that: the `publish` job puts the IPA, its
+sha256 and a `build-info.json` naming the commit on the non-expiring `ipa-latest`
+release, and `tools/fetch_latest_ipa.py` fetches from that release (falling back to
+the artifacts) and verifies what it got; `docs/INSTALL.md` has the usage and the
+exit codes. Neither depends on an editing session, or on this machine being
+powered on.
 
 ## What the app is today
 
@@ -101,10 +120,11 @@ Each file keeps its own copyright header.
 | Machine list: add, edit, delete, validation, JSON persistence (`App/MachineStore.swift`) | done, unit-tested |
 | QEMU engine bundled from the published payload (`tools/fetch-engine.sh`, `tools/trim-qemu-sysroot.sh`) | done in CI: run 38137299749 trims the payload 3,087 MiB to 308 MiB and the IPA contains `Frameworks/qemu-aarch64-softmmu.framework` (55 frameworks). **Not run**: no guest has been started. |
 | Engine locator: finds `Frameworks/qemu-aarch64-softmmu.framework` and reports available or missing (`App/EngineLocator.swift`) | done, unit-tested (10 tests pass in run 38134790715) |
-| CI workflow (`.github/workflows/ios.yml`) | done, produces an unsigned IPA |
+| CI workflow (`.github/workflows/ios.yml`) | done, produces an unsigned IPA, and publishes it to the non-expiring `ipa-latest` release on `main`; also runs on a nightly `schedule` on GitHub's runners |
 | Firmware bundling: `share/qemu` is copied into the bundle beside `Frameworks/` (`tools/fetch-engine.sh`, `.github/workflows/ios.yml`) | done in CI |
 | QEMU launcher: argument vector, firmware and blocker checks, per-machine writable EFI variables (`App/QEMULauncher.swift`) | done; the argument vector, image handling and vars extension are unit-tested |
 | Engine loadability check for the packaged IPA (`tools/check_ipa_bundle.py`) | done; run in CI, and verified to fail a sabotaged IPA |
+| Recovery of the packaged IPA from CI, checked the same way (`tools/fetch_latest_ipa.py`) | done; from a clean checkout it reproduces run 38211725437's IPA byte-for-byte. It prefers the non-expiring release asset and falls back to artifacts, checking the file against the sha256 the release publishes. Its refusal paths are exercised rather than assumed: exit 2 with no token, and exit 3 with no release or no matching artifact, or when `--require-head` is asked for a commit that has no run |
 | Machine runtime: start, stop through QEMU's monitor, the guest's console read from its serial socket, the engine's own output captured to `Documents/linux-engine.log`, disk-image import (`App/MachineRuntime.swift`) | done; vars extension, socket-path headroom and image-name sanitizing are unit-tested. **The engine has never actually been loaded.** |
 | Machine UI: Start, Console screen, disk-image picker (`App/MadeiraNextApp.swift`, `App/ConsoleView.swift`) | done, not exercised outside the simulator |
 | Guest display (framebuffer into a Metal view) | **not started** |

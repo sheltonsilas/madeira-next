@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Runs on GitHub's machines, not yours. A scheduled build is the whole point:
+  # it happens whether or not the laptop that asked for it is awake, so an IPA
+  # keeps being produced by a machine that never sleeps. Note that GitHub stops
+  # a scheduled workflow after 60 days with no repository activity, which any
+  # push clears.
+  schedule:
+    - cron: '17 4 * * *'
 
 permissions:
   contents: read
@@ -124,4 +131,90 @@ jobs:
           name: MadeiraNext-unsigned-ipa
           path: dist/MadeiraNext-unsigned.ipa
           if-no-files-found: error
+          # Kept short on purpose: 14 days is the retention GitHub allows cheaply,
+          # and the artifact is not the durable copy. The release below is.
           retention-days: 14
+
+  publish:
+    # The one permanent copy. An artifact expires; a release asset does not, so
+    # this is what makes "there is an IPA" still true in a month, on a machine
+    # that has never seen this checkout.
+    #
+    # Only ever for main: a pull request runs this workflow, and a branch that
+    # could repoint the release would be a fork writable into the release the
+    # user installs from.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # Only what the job needs: reading back the artifact the build job
+      # uploaded. `permissions:` is an allow-list, so leaving this out denies it.
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: MadeiraNext-unsigned-ipa
+          path: dist
+
+      - name: Write the checksums and the provenance beside the IPA
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum MadeiraNext-unsigned.ipa > MadeiraNext-unsigned.ipa.sha256
+          cat MadeiraNext-unsigned.ipa.sha256
+          # The tag is rewritten by every build, so the tag alone says nothing
+          # about which commit is inside the release. This is that answer, and
+          # tools/fetch_latest_ipa.py --require-head reads it.
+          python3 - "$GITHUB_SHA" "$GITHUB_RUN_ID" "$REPO" <<'PY'
+          import json, sys
+          commit, run_id, repo = sys.argv[1], sys.argv[2], sys.argv[3]
+          with open("build-info.json", "w") as handle:
+              json.dump({
+                  "commit": commit,
+                  "run_id": int(run_id),
+                  "run_url": f"https://github.com/{repo}/actions/runs/{run_id}",
+              }, handle, indent=2, sort_keys=True)
+              handle.write("\n")
+          PY
+          cat build-info.json
+
+      - name: Move the rolling release onto this build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=ipa-latest
+          short=${GITHUB_SHA:0:7}
+          # A quoted heredoc, so nothing in the text is expanded: the notes
+          # spell the placeholder and sed substitutes it, rather than leaving
+          # backticks to be read as command substitution.
+          cat > notes.md <<'EOF'
+          Unsigned, device-only IPA for iOS 17+, built from `__SHORT__` on `main`.
+
+          This release is rewritten by every green build, so the assets here always
+          name the newest one. It does not expire.
+
+          - `MadeiraNext-unsigned.ipa` - device-only arm64, no signature, ready to re-sign
+          - `MadeiraNext-unsigned.ipa.sha256` - what the file hashes to
+          - `build-info.json` - the commit and run this was built from
+
+          Sign it with your own Apple ID; see `docs/INSTALL.md`. Fetch it from a
+          checkout with `python3 tools/fetch_latest_ipa.py`.
+          EOF
+          sed -i "s/__SHORT__/$short/" notes.md
+          assets="dist/MadeiraNext-unsigned.ipa dist/MadeiraNext-unsigned.ipa.sha256 dist/build-info.json"
+          # Upload over the existing release rather than deleting and recreating
+          # it, so the URL never stops answering. A half-finished publish is
+          # worse than a stale one.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" $assets --clobber
+            gh release edit "$tag" --title "Madeira Next unsigned IPA (build $short)" --notes-file notes.md
+          else
+            gh release create "$tag" $assets \
+              --title "Madeira Next unsigned IPA (build $short)" \
+              --notes-file notes.md
+          fi
+          gh release view "$tag" --json url,assets --jq '.url, (.assets[].name)'
