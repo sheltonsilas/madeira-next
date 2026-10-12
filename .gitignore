@@ -8,3 +8,7 @@ toolchains/
 # Fetched engine payload (not committed; see tools/fetch-engine.sh)
 Engine/
 App/Frameworks/
+
+# Packaged output (the CI workflow builds it; the IPA is ~43 MB)
+dist/
+Payload/

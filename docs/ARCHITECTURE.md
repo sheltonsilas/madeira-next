@@ -14,12 +14,17 @@ left unlisted.
 | Unit tests (26) pass on an iOS simulator | passes in CI (run 38205810052; the simulator is chosen at run time with `simctl` rather than assuming a device name exists in the image) |
 | The QEMU engine and the aarch64 UEFI firmware are in the packaged IPA | passes in CI (run 38142473546): `Frameworks/qemu-aarch64-softmmu.framework` and `share/qemu/edk2-aarch64-code.fd` are in the archive |
 | The IPA can load its engine: the engine exports `qemu_init`, `qemu_main_loop`, `qemu_cleanup`, and every `@rpath` dependency of all 55 bundled frameworks is in the archive | passes in CI (`tools/check_ipa_bundle.py`, run 38205810052: 55 frameworks, 0 unresolved references, 0 problems). Checked against a sabotaged IPA with glib removed, which it fails with 31 unresolved references. |
+| An IPA that can be signed and installed | passes: the artifact is a device-only arm64 app with no signature of its own. **Not installed anywhere**: no Apple ID or device is available here. |
 | A guest boots | **not verified**: the launcher is written and its argument vector is unit-tested, but nothing has loaded the engine or started a guest |
 | The app runs on a device or simulator | **not verified**: no iPhone, iPad, or Mac here; the tests run in the simulator, but nothing has been driven through the UI |
 
 The IPA is produced by `.github/workflows/ios.yml` and uploaded as the
 `MadeiraNext-unsigned-ipa` artifact. It is unsigned and must be signed on
-install.
+install; `docs/INSTALL.md` covers signing it onto a device and what a machine
+does once it runs. The artifact on run 38206838071 was downloaded and checked
+directly: 320 entries, valid zip, engine and both firmware files present,
+`LC_BUILD_VERSION` platform `ios` (device, not simulator), and no
+`_CodeSignature` or `embedded.mobileprovision`, so it is ready to re-sign.
 
 ## What the app is today
 
