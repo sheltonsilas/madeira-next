@@ -86,6 +86,56 @@ enum WritableFirmwareVars {
     }
 }
 
+/// Reads the serial console socket, waiting for QEMU to create it.
+///
+/// The guest's boot log does *not* come from the engine's stdout: QEMU routes
+/// `-serial` to the chardev socket, so this is the only place a boot is visible.
+/// QEMU creates that socket as it starts, so the first connects legitimately fail
+/// and are retried rather than reported.
+final class ConsoleReader {
+    private let path: String
+    private let onText: (String) -> Void
+    private var thread: Thread?
+    private var stopped = false
+
+    init(path: String, onText: @escaping (String) -> Void) {
+        self.path = path
+        self.onText = onText
+    }
+
+    func start() {
+        let t = Thread { [weak self] in self?.loop() }
+        t.name = "qemu-console"
+        t.qualityOfService = .utility
+        thread = t
+        t.start()
+    }
+
+    func stop() { stopped = true }
+
+    private func loop() {
+        var fd: Int32 = -1
+        // About ten seconds of patience. Giving up is not an error - the machine
+        // still runs - so it is said plainly and the thread ends.
+        for _ in 0..<100 where fd < 0 {
+            if stopped { return }
+            fd = UnixSocket.connect(path: path)
+            if fd < 0 { Thread.sleep(forTimeInterval: 0.1) }
+        }
+        guard fd >= 0 else {
+            onText("\n(console socket never appeared; the machine is running without a console view)\n")
+            return
+        }
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while !stopped {
+            let n = read(fd, &buffer, buffer.count)
+            if n <= 0 { break }
+            if let text = String(bytes: buffer[0..<n], encoding: .utf8) { onText(text) }
+        }
+        close(fd)
+    }
+}
+
 /// A client for the engine's monitor socket. `quit` on it is QEMU's own
 /// documented way to shut a machine down, which is the only safe way to stop.
 final class MonitorWriter {
@@ -220,6 +270,7 @@ final class MachineRuntime: ObservableObject {
     private var thread: Thread?
     private var monitor: MonitorWriter?
     private var capture: EngineOutputCapture?
+    private var reader: ConsoleReader?
     private let consoleLimit = 200_000
 
     private init() {}
@@ -260,7 +311,19 @@ final class MachineRuntime: ObservableObject {
         runningMachine = machine.id
         append("starting \(machine.name)\n$ " + argv.joined(separator: " ") + "\n\n")
 
+        // The guest's console is a socket QEMU serves, so it does not exist
+        // until QEMU is up; the reader waits for it in the background.
         monitor = MonitorWriter(path: monitorPath)
+        let reader = ConsoleReader(path: consolePath) { [weak self] text in
+            Task { @MainActor in self?.append(text) }
+        }
+        reader.start()
+        self.reader = reader
+
+        // The engine's *own* output is separate from the guest's: QEMU reports a
+        // command line it cannot use by printing and calling exit(1), and a print
+        // nobody reads is how the app vanishes with the reason lost. Attached
+        // before the thread starts, so nothing written during init is missed.
         let capture = EngineOutputCapture { [weak self] text in
             Task { @MainActor in self?.append(text) }
         }
@@ -286,6 +349,8 @@ final class MachineRuntime: ObservableObject {
 
     private func exited() {
         append("\nengine exited\n")
+        reader?.stop()
+        reader = nil
         capture?.detach()
         capture = nil
         monitor = nil
