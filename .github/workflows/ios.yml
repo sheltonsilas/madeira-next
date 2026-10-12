@@ -56,7 +56,8 @@ jobs:
           else
             status=$?
             echo '--- failing tests ---'
-            grep -E "Test Case .* failed|XCTAssert.*failed|error:" test.log | head -n 60 || true
+            # -h: the assertion text, not the grep command echoed back.
+            grep -hE "Test Case .* failed|XCTAssert.*failed|error:" test.log | head -n 60 || true
             echo '--- last lines ---'
             tail -n 30 test.log
             exit $status

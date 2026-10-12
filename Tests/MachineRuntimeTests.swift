@@ -25,10 +25,12 @@ final class MachineRuntimeTests: XCTestCase {
         let size = try XCTUnwrap(try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)
         XCTAssertEqual(size.intValue, 65536)
 
-        // The template's own bytes survive at the front, so its variables remain.
+        // The template's own bytes survive at the front and the extension is
+        // zeroes, so the boundary is at the template's length.
         let data = try Data(contentsOf: url)
         XCTAssertEqual(data[0], 0xAB)
-        XCTAssertEqual(data[8191], 0xAB)
+        XCTAssertEqual(data[4095], 0xAB)
+        XCTAssertEqual(data[4096], 0x00)
         XCTAssertEqual(data[50000], 0x00)
     }
 
