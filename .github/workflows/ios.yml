@@ -135,6 +135,89 @@ jobs:
           # and the artifact is not the durable copy. The release below is.
           retention-days: 14
 
+  boot-smoke:
+    # The only job here that runs a guest, and the only check that can fail
+    # because the boot recipe is wrong rather than because packaging is. It runs
+    # on the schedule as well, so "does a guest boot" is re-measured every night
+    # on a machine that never sleeps instead of once by hand.
+    #
+    # It boots with the argument vector the app's own builder produces - 
+    # tools/boot_smoke.py reads it out of the launch test's log - against a host
+    # QEMU. That cannot load the iOS engine framework, because a device binary
+    # does not dlopen on a runner, so what it proves is the recipe, the firmware
+    # and the bundle layout, not the engine's own load path. The two claims are
+    # kept apart in docs/ARCHITECTURE.md.
+    #
+    # No `needs:`: it borrows nothing from the build job, so a packaging failure
+    # and a boot failure stay separately readable, and the two run at once.
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      - name: Install XcodeGen and QEMU
+        run: |
+          set -euo pipefail
+          brew install xcodegen qemu
+          qemu-system-aarch64 --version
+
+      - name: Fetch the firmware the app ships
+        # The same payload the build job uses, but only its share/: the smoke
+        # needs share/qemu and has no use for 55 frameworks.
+        env:
+          GH_TOKEN: ${{ secrets.PAYLOAD_TOKEN }}
+        run: |
+          set -euo pipefail
+          bash tools/fetch-engine.sh --share-only Engine/share
+
+      - name: Ask the app for its argument vector
+        run: |
+          set -euo pipefail
+          xcodegen generate --spec project.yml
+          pick='import json,sys;d=json.load(sys.stdin)["devices"];c=[(r,e["udid"]) for r,v in d.items() if "iOS" in r for e in v if e.get("isAvailable") and e["name"].startswith("iPhone")];c.sort();print(c[-1][1] if c else "")'
+          udid=$(xcrun simctl list devices available --json | python3 -c "$pick")
+          if [ -z "$udid" ]; then
+            echo "::error::this runner has no available iPhone simulator"
+            xcrun simctl list devices available
+            exit 1
+          fi
+          # Only the launch test: this job wants the vector, not a second run of
+          # the whole suite, which the build job already does.
+          if ! xcodebuild \
+            -project MadeiraNext.xcodeproj \
+            -scheme MadeiraNext \
+            -destination "id=$udid" \
+            -derivedDataPath build-smoke \
+            CODE_SIGNING_ALLOWED=NO \
+            test -only-testing:MadeiraNextTests/QEMULauncherTests/testArgumentVectorForTheBootSmoke \
+            > argv.log 2>&1
+          then
+            status=$?
+            echo '--- the launch test did not pass ---'
+            grep -hE "Test Case .* failed|XCTAssert.*failed|error:" argv.log | head -n 40 || true
+            tail -n 30 argv.log
+            exit $status
+          fi
+          if ! grep -q MADEIRA-ARGV-BEGIN argv.log; then
+            echo "::error::the launch test passed but published no argument vector"
+            exit 1
+          fi
+          grep -o '/MADEIRA_SMOKE/[a-zA-Z0-9._/-]*' argv.log | sort -u
+
+      - name: Boot a guest with it
+        run: |
+          set -euo pipefail
+          python3 tools/boot_smoke.py \
+            --log argv.log \
+            --firmware-dir Engine/share \
+            --work "$RUNNER_TEMP/smoke"
+
   publish:
     # The one permanent copy. An artifact expires; a release asset does not, so
     # this is what makes "there is an IPA" still true in a month, on a machine

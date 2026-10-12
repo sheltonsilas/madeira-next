@@ -8,17 +8,31 @@
 # trim-qemu-sysroot.sh (copied from Madeira, see docs/ARCHITECTURE.md), and copies
 # the trimmed Frameworks/ into the app's Frameworks directory.
 #
-# Usage: fetch-engine.sh <destination-Frameworks-directory>
+# Usage: fetch-engine.sh <destination-Frameworks-directory> [share-destination]
+#        fetch-engine.sh --share-only <share-destination>
 #
-# Exit 0 only when the engine framework is present in the destination. Any other
-# result is a failure: a build that silently ships without the engine would make
-# EngineLocator report "missing" with no reason anyone could see.
+# --share-only fetches the firmware and nothing else. tools/boot_smoke.py needs
+# only share/qemu, and it runs on a schedule, so it should not drag 55 frameworks
+# through a runner to boot a guest. The firmware it gets is the same payload the
+# packaged app ships: trim-qemu-sysroot.sh deletes firmware for other machines
+# and leaves the aarch64 pair alone, so these are the bytes inside the IPA.
+#
+# Exit 0 only when the engine framework is present in the destination, or, with
+# --share-only, when the firmware is. Any other result is a failure: a build that
+# silently ships without the engine would make EngineLocator report "missing"
+# with no reason anyone could see.
 
 set -euo pipefail
 
+share_only=no
+if [ "${1:-}" = "--share-only" ]; then
+    share_only=yes
+    shift
+fi
+
 dest="${1:-}"
 if [ -z "$dest" ]; then
-    echo "usage: fetch-engine.sh <destination-Frameworks-directory>" >&2
+    echo "usage: fetch-engine.sh [--share-only] <destination-Frameworks-directory> [share-destination]" >&2
     exit 1
 fi
 
@@ -34,6 +48,17 @@ gh release download payloads --repo "$repo" --pattern "$asset" --dir "$work"
 sysroot="$work/sysroot"
 mkdir -p "$sysroot"
 tar -xzf "$work/$asset" -C "$sysroot" 2>/dev/null
+
+if [ "$share_only" = yes ]; then
+    mkdir -p "$dest"
+    cp -R "$sysroot/share/." "$dest/"
+    if [ ! -f "$dest/qemu/edk2-aarch64-code.fd" ] || [ ! -f "$dest/qemu/edk2-arm-vars.fd" ]; then
+        echo "::error::the firmware did not land in $dest" >&2
+        exit 1
+    fi
+    echo "firmware installed in $dest"
+    exit 0
+fi
 
 bash "$here/trim-qemu-sysroot.sh" "$sysroot"
 

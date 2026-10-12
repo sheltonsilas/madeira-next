@@ -59,6 +59,37 @@ final class QEMULauncherTests: XCTestCase {
         XCTAssertEqual(a[a.firstIndex(of: "-L")! + 1], "/share/qemu")
     }
 
+    /// Publishes the argument vector for tools/boot_smoke.py to boot a guest with.
+    ///
+    /// This is the only route the argv has out of the app, and it is deliberately
+    /// the real builder rather than a copy kept in step by hand: the smoke script
+    /// reads the JSON between these markers out of the xcodebuild log and runs a
+    /// guest with exactly what QEMUArguments.build produced here. Paths are under
+    /// /MADEIRA_SMOKE, which the script rewrites to its own working directory.
+    func testArgumentVectorForTheBootSmoke() throws {
+        let machine = Machine(name: "smoke", memoryMB: 1024, cpuCount: 1)
+        let argv = QEMUArguments.build(
+            machine: machine,
+            imagePath: "/MADEIRA_SMOKE/disk.raw",
+            firmware: LinuxFirmware(
+                code: URL(fileURLWithPath: "/MADEIRA_SMOKE/share/qemu/edk2-aarch64-code.fd"),
+                vars: URL(fileURLWithPath: "/MADEIRA_SMOKE/share/qemu/edk2-arm-vars.fd")),
+            writableVars: URL(fileURLWithPath: "/MADEIRA_SMOKE/efi-vars.fd"),
+            shareDirectory: URL(fileURLWithPath: "/MADEIRA_SMOKE/share"),
+            monitorPath: "/MADEIRA_SMOKE/monitor.sock",
+            consolePath: "/MADEIRA_SMOKE/console.sock")
+
+        let data = try JSONSerialization.data(withJSONObject: argv, options: [.sortedKeys])
+        let json = String(decoding: data, as: UTF8.self)
+        // A vector that no longer mentions the placeholder paths would let the
+        // smoke test boot something other than what this builder makes.
+        XCTAssertTrue(json.contains("/MADEIRA_SMOKE/console.sock"))
+        XCTAssertTrue(json.contains("qemu-system-aarch64"))
+        print("MADEIRA-ARGV-BEGIN")
+        print(json)
+        print("MADEIRA-ARGV-END")
+    }
+
     func testBlockerReportsMissingImage() {
         XCTAssertNotNil(LinuxBootCheck.blocker(imagePath: nil))
         XCTAssertNotNil(LinuxBootCheck.blocker(imagePath: "/definitely/not/here.qcow2"))
