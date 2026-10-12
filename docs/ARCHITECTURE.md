@@ -11,7 +11,9 @@ left unlisted.
 | XcodeGen generates the project from `project.yml` | passes in CI |
 | `xcodebuild` builds the `MadeiraNext` target for iOS, signing off | passes in CI (run 38133166284) |
 | Unsigned IPA is packaged and its zip is valid | passes; the IPA holds `Payload/MadeiraNext.app` with bundle id `com.sheltonsilas.madeiranext`, `MinimumOSVersion` 17.0 |
-| Unit tests (7) pass on an iOS simulator | passes in CI (run 38133548584) |
+| Unit tests (24) pass on an iOS simulator | passes in CI (run 38201427692) |
+| The QEMU engine and the aarch64 UEFI firmware are in the packaged IPA | passes in CI (run 38142473546): `Frameworks/qemu-aarch64-softmmu.framework` and `share/qemu/edk2-aarch64-code.fd` are in the archive |
+| A guest boots | **not verified**: the launcher is written and its argument vector is unit-tested, but nothing has loaded the engine or started a guest |
 | The app runs on a device or simulator | **not verified**: no iPhone, iPad, or Mac here; the tests run in the simulator, but nothing has been driven through the UI |
 
 The IPA is produced by `.github/workflows/ios.yml` and uploaded as the
@@ -23,14 +25,27 @@ install.
 A SwiftUI app: `App/MadeiraNextApp.swift` shows a list of Linux machines the
 user can add, edit and delete. Machines persist to
 `Application Support/MadeiraNext/machines.json` (atomic writes; a corrupt file is
-reported, never silently discarded). **Nothing starts a machine yet.**
+reported, never silently discarded). Each machine can be given a disk image from
+the Files picker (copied into the machine's own folder, because a
+security-scoped URL is only valid for the callback's lifetime) and started.
+
+Starting a machine builds QEMU's argument vector, writes its EFI variables, runs
+the engine on its own thread, and shows its serial console, with Stop asking
+QEMU's own monitor to quit so the guest's disk is flushed by QEMU itself. The
+engine's stdout and stderr are captured into the console and appended to
+`Documents/linux-engine.log`, because QEMU answers a command line it cannot use
+by printing and calling `exit(1)` — inside this process, the app vanishing with
+the reason lost.
+
+**What is still missing**: no display. A guest boots headless and is read over
+the console; its framebuffer is not drawn in the app.
 
 ## Licences
 
 | Scope | Licence | Why |
 |---|---|---|
 | `upstream/utm/**` (copied) | Apache-2.0, see `upstream/utm/LICENSE` | UTM by osy, <https://github.com/utmapp/UTM> |
-| Everything else written here | not yet chosen | see Open decisions |
+| The app's own Swift, the scripts in `tools/`, and the CI workflow | GPL-3.0-or-later, see `COPYING` | `trim-qemu-sysroot.sh` is a copy of Madeira's GPL-3.0-or-later script |
 
 Apache-2.0 code can be used in a GPL-3.0 project, but not the reverse. No code
 from Madeira (GPL-3.0) is in this repository.
@@ -71,26 +86,32 @@ Each file keeps its own copyright header.
 | QEMU engine bundled from the published payload (`tools/fetch-engine.sh`, `tools/trim-qemu-sysroot.sh`) | done in CI: run 38137299749 trims the payload 3,087 MiB to 308 MiB and the IPA contains `Frameworks/qemu-aarch64-softmmu.framework` (55 frameworks). **Not run**: no guest has been started. |
 | Engine locator: finds `Frameworks/qemu-aarch64-softmmu.framework` and reports available or missing (`App/EngineLocator.swift`) | done, unit-tested (10 tests pass in run 38134790715) |
 | CI workflow (`.github/workflows/ios.yml`) | done, produces an unsigned IPA |
-| Linux engine launch layer | **started**: the engine is bundled and located; nothing launches a guest yet |
+| Firmware bundling: `share/qemu` is copied into the bundle beside `Frameworks/` (`tools/fetch-engine.sh`, `.github/workflows/ios.yml`) | done in CI |
+| QEMU launcher: argument vector, firmware and blocker checks, per-machine writable EFI variables (`App/QEMULauncher.swift`) | done; the argument vector, image handling and vars extension are unit-tested |
+| Machine runtime: start, stop through QEMU's monitor, console capture to `Documents/linux-engine.log`, disk-image import (`App/MachineRuntime.swift`) | done; vars extension and image-name sanitizing are unit-tested. **The engine has never actually been loaded.** |
+| Machine UI: Start, Console screen, disk-image picker (`App/MadeiraNextApp.swift`, `App/ConsoleView.swift`) | done, not exercised outside the simulator |
+| Guest display (framebuffer into a Metal view) | **not started** |
 | Windows engine (Wine/FEX/DXMT) | **not started** |
-| Machine persistence, UI for create/import/export | not started |
+| Machine import/export and snapshots | not started |
 
 ## Remaining work, in order
 
-1. Add the copied UTM Swift files to the app target and get them compiling.
-   Expect many errors: they target UTM's own types and the Apple
-   Virtualization framework, which are not present here.
-2. Build a QEMU sysroot for iOS (TCG, aarch64) and load it through the copied
-   bootstrap. This is the step the Madeira project spent most of its time on.
-3. Boot a guest and read its serial console. Only then build a display.
-4. The Windows side is a separate effort (Wine, FEX, DXMT), not started.
+1. Boot a guest on a device and read its serial console. The launcher and its
+   argument vector are written and tested, but nothing has loaded the engine, so
+   the first `dlopen` of `qemu-aarch64-softmmu.framework` is still unproven. A
+   device is required: the engine is a device-only Mach-O, so the simulator
+   cannot exercise it.
+2. Draw the guest's framebuffer. Add `-device virtio-gpu-pci`, read its scanout
+   and present it in a Metal view; the argument builder and the runtime are the
+   places this attaches to.
+3. The Windows side is a separate effort (Wine, FEX, DXMT), not started.
 
 ## Open decisions
 
-- The licence for code written here (not copied). Madeira's GPL-3.0 would
-  apply to the whole repository, including the copied Apache-2.0 files.
 - Whether the Windows side reuses Madeira's Wine/FEX/DXMT submodules. Those are
-  GPL and LGPL, so reusing them fixes the licence.
+  GPL and LGPL, which is compatible with this repository's GPL-3.0-or-later.
+- Whether the guest display uses `virtio-gpu-pci` with a scanout reader (as
+  Madeira's Windows side does with MetalHostView) or another path.
 
 ## Known risks
 
@@ -104,3 +125,20 @@ Each file keeps its own copyright header.
 The engine is not built here. `tools/fetch-engine.sh` downloads Madeira's published `qemu-ios-tci-arm64.tar.gz` payload, which bundles QEMU (GPL-2.0), glib, gstreamer, spice, openssl, and others, each under its own licence. The payload's own licence files (for example `share/qemu/edk2-licenses.txt`, EDK2 firmware under BSD-2-Clause-Patent) are the reference; this repository does not relicense them.
 
 `tools/trim-qemu-sysroot.sh` is a copy of Madeira's `build/ci/trim-qemu-sysroot.sh` (GPL-3.0-or-later, same author), so it is GPL-3.0-or-later like the rest of the app's own code.
+
+## Where the launcher came from
+
+`App/QEMULauncher.swift` and `App/MachineRuntime.swift` are written for this
+repository, guided by Madeira's `app/Madeira/Variant/QEMULauncher.swift`
+(GPL-3.0-or-later, same author) — the same `dlopen` seam over QEMU's
+`qemu_init` / `qemu_main_loop` / `qemu_cleanup`, the same socket-driven console
+and monitor, and the same writable-EFI-variables reasoning. They are not copies:
+they carry only what this app needs, they take their machine model from
+`App/MachineStore.swift` rather than Madeira's `LinuxEnvironment`, and they have
+no display path. Madeira's file is the reference for each decision, including
+why the framework copy under `Frameworks/` is the loadable one and why the
+writable vars image has to be extended to the code image's size.
+
+The licences that apply to the app's own code and to the copied files are in
+`COPYING` (GPL-3.0-or-later) and `upstream/utm/LICENSE` (Apache-2.0), and the
+engine payload's own licence files are listed above.
