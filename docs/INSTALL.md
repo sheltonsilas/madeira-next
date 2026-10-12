@@ -17,7 +17,13 @@ built from.
 
 The workflow also runs on a nightly `schedule`. That build runs on GitHub's own
 runners, not on anyone's laptop, so an IPA keeps being produced while the machine
-that asked for one is asleep, closed, or off.
+that asked for one is asleep, closed, or off. The same nightly run also starts a
+guest: the `boot-smoke` job boots a machine with the argument vector the app's own
+code builds, using a host QEMU, and requires it to reach the UEFI shell and then
+stop on command. That check covers the recipe, the firmware and the app's own
+firmware handling; it cannot load the iOS engine, so nothing there proves the
+engine itself, which only a device can. Run 38276446514 is the first run that got
+as far as a guest: `UEFI Interactive Shell v2.2`, 65.4s after start.
 
 One caveat worth knowing: GitHub disables a scheduled workflow after 60 days with
 no repository activity. Any push clears that, and so does starting the workflow by

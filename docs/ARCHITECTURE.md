@@ -11,12 +11,13 @@ left unlisted.
 | XcodeGen generates the project from `project.yml` | passes in CI |
 | `xcodebuild` builds the `MadeiraNext` target for iOS, signing off | passes in CI (run 38133166284) |
 | Unsigned IPA is packaged and its zip is valid | passes; the IPA holds `Payload/MadeiraNext.app` with bundle id `com.sheltonsilas.madeiranext`, `MinimumOSVersion` 17.0 |
-| Unit tests (26) pass on an iOS simulator | passes in CI (run 38205810052; the simulator is chosen at run time with `simctl` rather than assuming a device name exists in the image) |
+| Unit tests (27) pass on an iOS simulator | passes in CI (run 38276446514, 27 tests, 0 failures; the simulator is chosen at run time with `simctl` rather than assuming a device name exists in the image) |
 | The QEMU engine and the aarch64 UEFI firmware are in the packaged IPA | passes in CI (run 38142473546): `Frameworks/qemu-aarch64-softmmu.framework` and `share/qemu/edk2-aarch64-code.fd` are in the archive |
 | The IPA can load its engine: the engine exports `qemu_init`, `qemu_main_loop`, `qemu_cleanup`, and every `@rpath` dependency of all 55 bundled frameworks is in the archive | passes in CI (`tools/check_ipa_bundle.py`, run 38205810052: 55 frameworks, 0 unresolved references, 0 problems). Checked against a sabotaged IPA with glib removed, which it fails with 31 unresolved references. |
 | An IPA that can be signed and installed | passes: the artifact is a device-only arm64 app with no signature of its own. **Not installed anywhere**: no Apple ID or device is available here. |
 | The IPA is obtainable without this machine | passes and was exercised twice: run 38265087905 published commit `f09384c` to the `ipa-latest` release, then a later push republished `3e90487` over it (run 38266335261) with no manual step, and `tools/fetch_latest_ipa.py --require-head` took that copy and matched the sha256 the release publishes. The nightly `schedule` trigger is committed but has not fired yet, so only the push path is proven |
-| A guest boots | **not verified**: the launcher is written and its argument vector is unit-tested, but nothing has loaded the engine or started a guest |
+| The boot recipe starts a guest | passes: run 38276446514 ran the argument vector the app's own builder produces under a host QEMU, and the guest reached `UEFI Interactive Shell v2.2` and `UEFI v2.70 (EDK II, 0x00010000)` in 65.4s, then quit through the monitor with status 0. It is the recipe, the firmware and the bundle layout that are verified here, not the engine: a device-only framework cannot be loaded on a runner. |
+| A guest boots inside the app | **not verified**: nothing has ever `dlopen`ed the engine, so the engine's own load path and the app's boot remain unexercised. The recipe under them is now verified |
 | The app runs on a device or simulator | **not verified**: no iPhone, iPad, or Mac here; the tests run in the simulator, but nothing has been driven through the UI |
 
 The IPA is produced by `.github/workflows/ios.yml` and published to the
@@ -56,6 +57,49 @@ the commit on the non-expiring `ipa-latest` release, and `tools/fetch_latest_ipa
 fetches from that release (falling back to the artifacts) and verifies what it got;
 `docs/INSTALL.md` has the usage and the exit codes. Neither depends on an editing
 session, or on this machine being powered on.
+
+## Booting a guest, nightly
+
+The `boot-smoke` job is the only one here that runs a guest, and unlike packaging
+it can fail because the boot recipe itself is wrong. It is the answer to "does a
+machine start" that does not depend on this laptop: the job runs on GitHub's
+runners, on the same nightly `schedule` as the IPA, so the question is asked again
+by a machine that never sleeps. What is verified is the job itself - two real runs,
+one of which failed for the right reason - not the clock: as noted above, the
+schedule has not fired yet.
+
+The argument vector is not written down twice. `tools/boot_smoke.py` reads it out
+of the launch test's log - `testArgumentVectorForTheBootSmoke` prints the output of
+the real `QEMUArguments.build` between two markers - rewrites the test's
+`/MADEIRA_SMOKE` paths onto a real machine folder, and starts a host QEMU with it.
+A boot passes only when the guest reaches its firmware shell *and* then stops on
+command through the monitor socket, which is the same interface the app uses to
+stop a machine. Everything the vector names has to exist before it is started, so
+a vector that has drifted from the folder the script builds is a failure rather
+than a boot of something else.
+
+The job's first real result was a failure, which is what the check is for: the
+script had copied the bundle's `edk2-arm-vars.fd` template (329,216 bytes) straight
+into the writable slot, and QEMU refused the machine outright - "cfi.pflash01
+device '/machine/virt.flash1' requires 67108864 bytes, pflash1 block backend
+provides 329216 bytes". The app already knew this and pads the template to the code
+image's size (`WritableFirmwareVars`, with a test); the mirror was wrong, not the
+app. The script now makes that file the same way, and the second run booted.
+On the runner the bank it built was 67,108,864 bytes from a 329,216-byte template.
+
+The firmware bytes are the payload's own: the job fetches them with
+`tools/fetch-engine.sh --share-only`, which takes the same release asset the
+packaged app ships from, and `trim-qemu-sysroot.sh` deletes firmware for other
+machines while leaving this pair. The code image booted in run 38276446514 hashes
+to `ee769c4bf42a5350d33345fc1b16d00156fe0c25fb3c68debd003bd844e4e3fa`.
+
+**What this does not prove.** A runner cannot load the iOS engine framework, so
+the engine's `dlopen`, its 55 dependencies and the app's own boot path are still
+only exercised on a device. Nor is it shown that a UEFI variable written by one
+boot is still there on the next one: the bank is writable and a machine reuses its
+own file, but no run has yet started a guest twice and compared. And a guest that
+reaches its firmware shell is a machine that starts; it is not a Linux that boots,
+because nothing has installed one.
 
 ## What the app is today
 
