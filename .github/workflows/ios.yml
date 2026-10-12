@@ -98,6 +98,10 @@ jobs:
           rm -rf Payload
           python3 -c "import zipfile,sys; z=zipfile.ZipFile('dist/MadeiraNext-unsigned.ipa'); sys.exit(1 if z.testzip() else 0)"
           python3 -c "import zipfile,sys; names=zipfile.ZipFile('dist/MadeiraNext-unsigned.ipa').namelist(); need='Payload/MadeiraNext.app/Frameworks/qemu-aarch64-softmmu.framework/qemu-aarch64-softmmu'; sys.exit(0 if need in names else 1)"
+          # Nothing else resolves these install names: the app links none of the
+          # engine's libraries. A framework trimmed away is an app that installs
+          # and then dies inside dyld, which no simulator can reproduce.
+          python3 tools/check_ipa_bundle.py dist/MadeiraNext-unsigned.ipa
 
       - uses: actions/upload-artifact@v4
         with:
