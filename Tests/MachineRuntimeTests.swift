@@ -50,6 +50,42 @@ final class MachineRuntimeTests: XCTestCase {
         XCTAssertEqual(modified, marker)
     }
 
+    /// A socket path has to fit in `sockaddr_un.sun_path`, which is 104 bytes on
+    /// Darwin. An app container is about 76 of them and a machine's folder under
+    /// Library/Application Support takes a socket beside the image to over 160, so
+    /// this asserts the headroom rather than a specific spelling: the simulator
+    /// container is much shorter than the device's, which is why the mistake is
+    /// invisible without it.
+    func testSocketPathsLeaveHeadroomForTheKernelLimit() throws {
+        // The device container root, as measured on iOS: the simulator's root is
+        // much shorter, so the assertion is made against this length and not
+        // against whatever this run happens to have.
+        let deviceContainer = "/var/mobile/Containers/Data/Application/" + String(repeating: "A", count: 36)
+        let sockets = try MachineDirectory.sockets()
+
+        for id in [UUID(), UUID()] {
+            for path in [try MachineDirectory.consoleSocket(id: id),
+                         try MachineDirectory.monitorSocket(id: id)] {
+                // Everything the path spends inside the container: /s/<name>.sock.
+                let inside = String(path.dropFirst(sockets.path.count))
+                let onDevice = deviceContainer.count + inside.count
+                XCTAssertLessThan(onDevice, 104, "socket path must fit in sun_path: \(path)")
+            }
+            XCTAssertNotEqual(try MachineDirectory.consoleSocket(id: id),
+                              try MachineDirectory.monitorSocket(id: id))
+        }
+        XCTAssertNotEqual(try MachineDirectory.consoleSocket(id: UUID()),
+                          try MachineDirectory.consoleSocket(id: UUID()))
+    }
+
+    /// The two sockets must be named for the machine, which is what keeps one
+    /// machine's stop from reaching another's.
+    func testSocketNamesCarryTheMachineTag() throws {
+        let id = UUID(uuidString: "ABCDEF01-2345-6789-ABCD-EF0123456789")!
+        XCTAssertTrue(try MachineDirectory.consoleSocket(id: id).hasSuffix("/cabcdef01.sock"))
+        XCTAssertTrue(try MachineDirectory.monitorSocket(id: id).hasSuffix("/mabcdef01.sock"))
+    }
+
     /// A firmware with no vars image yields nil rather than a broken file.
     func testNoVarsImageMeansNoWritableFile() {
         let code = folder.appendingPathComponent("code.fd")

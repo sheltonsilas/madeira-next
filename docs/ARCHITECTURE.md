@@ -41,6 +41,16 @@ the reason lost.
 **What is still missing**: no display. A guest boots headless and is read over
 the console; its framebuffer is not drawn in the app.
 
+Two device-only constraints are written down here because neither is visible in
+the simulator. A Unix socket path must fit in `sockaddr_un.sun_path` (104 bytes
+on Darwin): an app container spends about 76, and a socket placed beside its
+disk image under `Library/Application Support` arrives at roughly 175, at which
+point QEMU refuses it and the machine starts with no console and a monitor that
+never answers. So the sockets live in a two-character directory at the
+container root instead, named after a short tag of the machine's id. And the
+firmware's variables bank is extended to the size of the code image, because the
+`virt` machine refuses a flash bank shorter than its device.
+
 ## Licences
 
 | Scope | Licence | Why |
@@ -90,7 +100,7 @@ Each file keeps its own copyright header.
 | Firmware bundling: `share/qemu` is copied into the bundle beside `Frameworks/` (`tools/fetch-engine.sh`, `.github/workflows/ios.yml`) | done in CI |
 | QEMU launcher: argument vector, firmware and blocker checks, per-machine writable EFI variables (`App/QEMULauncher.swift`) | done; the argument vector, image handling and vars extension are unit-tested |
 | Engine loadability check for the packaged IPA (`tools/check_ipa_bundle.py`) | done; run in CI, and verified to fail a sabotaged IPA |
-| Machine runtime: start, stop through QEMU's monitor, console capture to `Documents/linux-engine.log`, disk-image import (`App/MachineRuntime.swift`) | done; vars extension and image-name sanitizing are unit-tested. **The engine has never actually been loaded.** |
+| Machine runtime: start, stop through QEMU's monitor, the guest's console read from its serial socket, the engine's own output captured to `Documents/linux-engine.log`, disk-image import (`App/MachineRuntime.swift`) | done; vars extension, socket-path headroom and image-name sanitizing are unit-tested. **The engine has never actually been loaded.** |
 | Machine UI: Start, Console screen, disk-image picker (`App/MadeiraNextApp.swift`, `App/ConsoleView.swift`) | done, not exercised outside the simulator |
 | Guest display (framebuffer into a Metal view) | **not started** |
 | Windows engine (Wine/FEX/DXMT) | **not started** |

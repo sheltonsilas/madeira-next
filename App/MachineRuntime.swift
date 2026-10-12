@@ -18,6 +18,44 @@ enum MachineDirectory {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }
+
+    /// Where a machine's two sockets live: a short directory at the container
+    /// root, *not* beside its disk image.
+    ///
+    /// A Unix socket path has to fit in `sockaddr_un.sun_path`, which is 104
+    /// bytes on Darwin. An app container is about 76 of those, and a machine's
+    /// folder under Library/Application Support takes the full path to around
+    /// 160 - so a socket created next to the image is refused with "path too
+    /// long", and the machine starts with no console and a monitor that never
+    /// answers. Fourteen characters under the container root leaves about eight
+    /// to spare.
+    static func sockets() throws -> URL {
+        let support = try FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true)
+        // Application Support is inside Library/, so the container root is two
+        // levels up: <container>/Library/Application Support.
+        let container = support.deletingLastPathComponent().deletingLastPathComponent()
+        let directory = container.appendingPathComponent("s", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    /// The machine's serial console socket path; short by construction.
+    static func consoleSocket(id: UUID) throws -> String {
+        try sockets().appendingPathComponent("c\(tag(for: id)).sock").path
+    }
+
+    /// The machine's monitor socket path; short by construction.
+    static func monitorSocket(id: UUID) throws -> String {
+        try sockets().appendingPathComponent("m\(tag(for: id)).sock").path
+    }
+
+    /// The first eight hex digits of the id: enough to separate machines, short
+    /// enough for the path limit.
+    private static func tag(for id: UUID) -> String {
+        String(id.uuidString.replacingOccurrences(of: "-", with: "").prefix(8)).lowercased()
+    }
 }
 
 /// Copies a disk image the user picked into the machine's own folder.
@@ -293,8 +331,8 @@ final class MachineRuntime: ObservableObject {
 
         let engine = try QEMUEngine.load(at: enginePath)
         let folder = try MachineDirectory.forMachine(id: machine.id)
-        let monitorPath = folder.appendingPathComponent("monitor.sock").path
-        let consolePath = folder.appendingPathComponent("console.sock").path
+        let monitorPath = try MachineDirectory.monitorSocket(id: machine.id)
+        let consolePath = try MachineDirectory.consoleSocket(id: machine.id)
         for path in [monitorPath, consolePath] { try? FileManager.default.removeItem(atPath: path) }
 
         let vars = WritableFirmwareVars.url(
