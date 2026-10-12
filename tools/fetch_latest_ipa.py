@@ -118,11 +118,18 @@ def api(url: str, token: str) -> dict:
         return json.load(response)
 
 
-def download_bytes(url: str, token: str, timeout: int = 600):
-    """Open a download URL, following the redirect without the token."""
+def download_bytes(url: str, token: str, accept: str = "application/octet-stream",
+                   timeout: int = 600):
+    """Open a download URL, following the redirect without the token.
+
+    `accept` is a parameter because the two kinds of download disagree: a release
+    asset is served as `application/octet-stream`, and the artifact zip endpoint
+    answers **415 Unsupported Media Type** for exactly that. Asking for the wrong
+    one is a download that never starts, so each caller names its own.
+    """
     request = urllib.request.Request(url, headers={
         "Authorization": f"token {token}",
-        "Accept": "application/octet-stream",
+        "Accept": accept,
         "User-Agent": "madeira-next-fetch-ipa",
     })
     return urllib.request.build_opener(NoCrossHostAuth()).open(request, timeout=timeout)
@@ -247,7 +254,10 @@ def download(artifact: dict, destination: pathlib.Path, token: str) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     staged = destination.with_name(destination.name + ".download")
     try:
-        with download_bytes(artifact["archive_download_url"], token) as response, \
+        # The artifact zip is an Actions API response, not a plain file: it wants
+        # the JSON media type. octet-stream is answered with 415.
+        with download_bytes(artifact["archive_download_url"], token,
+                            accept="application/vnd.github+json") as response, \
                 open(staged, "wb") as handle:
             while True:
                 chunk = response.read(1 << 20)
@@ -359,26 +369,32 @@ def main() -> int:
 
     # The release first: it is the one copy that does not expire, so it is what
     # survives a laptop being asleep, closed, or off for a month.
+    # Why the release could not be used, in the words to report when it was the
+    # only source asked for. Each way of failing says its own reason: "there is no
+    # release" and "the release has no IPA on it" are different problems with
+    # different fixes, and reporting the wrong one wastes the reader's time.
     release_body = None
+    release_trouble = ""
     if args.source in ("auto", "release"):
         release_body = published_release(args.repo, args.release_tag, token)
         if release_body is None:
+            release_trouble = f"release {args.release_tag} does not exist in {args.repo}"
             if args.source == "release":
-                print(f"release {args.release_tag} does not exist in {args.repo}",
-                      file=sys.stderr)
+                print(release_trouble, file=sys.stderr)
                 print(f"  run the ios workflow on main to publish it: "
                       f"https://github.com/{args.repo}/actions/workflows/ios.yml",
                       file=sys.stderr)
                 return EXIT_NONE
         elif asset(release_body, IPA_ASSET) is None:
-            say(f"release {args.release_tag} has no {IPA_ASSET} asset; "
-                "falling back to artifacts")
+            release_trouble = f"release {args.release_tag} has no {IPA_ASSET} asset"
+            say(f"{release_trouble}; falling back to artifacts")
             release_body = None
         elif head is not None:
             built = published_commit(release_body, token)
             if built != head:
-                say(f"release {args.release_tag} was built from {str(built)[:12]}, "
-                    f"not {head[:12]}; falling back to artifacts")
+                release_trouble = (f"release {args.release_tag} was built from "
+                                   f"{str(built)[:12]}, not {head[:12]}")
+                say(f"{release_trouble}; falling back to artifacts")
                 release_body = None
 
     if release_body is not None:
@@ -400,11 +416,11 @@ def main() -> int:
             return EXIT_VERIFY
     else:
         if args.source == "release":
-            # --source release was asked to take the release and nothing else, and
-            # the only way to arrive here with a release in hand is a commit
-            # mismatch, so say which commit it holds rather than exiting mute.
-            print(f"release {args.release_tag} does not hold a build of "
-                  f"{(head or 'this commit')[:12]}", file=sys.stderr)
+            # --source release takes the release and nothing else, so the reason
+            # it was set aside is the whole answer, and exiting mute would leave
+            # the reader with nothing to act on.
+            print(release_trouble or f"release {args.release_tag} is unusable",
+                  file=sys.stderr)
             return EXIT_NONE
         deadline = time.monotonic() + args.timeout * 60
         artifact = pick(args.repo, args.artifact, token, head)
