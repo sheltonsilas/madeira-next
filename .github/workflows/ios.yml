@@ -44,19 +44,8 @@ jobs:
         # run before a single test compiled.
         run: |
           set -euo pipefail
-          udid=$(xcrun simctl list devices available --json | python3 -c '
-import json, sys
-devices = json.load(sys.stdin)["devices"]
-candidates = []
-for runtime, entries in devices.items():
-    if "iOS" not in runtime:
-        continue
-    for entry in entries:
-        if entry.get("isAvailable") and entry["name"].startswith("iPhone"):
-            candidates.append((runtime, entry["udid"]))
-candidates.sort()
-print(candidates[-1][1] if candidates else "")
-')
+          pick='import json,sys;d=json.load(sys.stdin)["devices"];c=[(r,e["udid"]) for r,v in d.items() if "iOS" in r for e in v if e.get("isAvailable") and e["name"].startswith("iPhone")];c.sort();print(c[-1][1] if c else "")'
+          udid=$(xcrun simctl list devices available --json | python3 -c "$pick")
           if [ -z "$udid" ]; then
             echo "::error::this runner has no available iPhone simulator"
             xcrun simctl list devices available
