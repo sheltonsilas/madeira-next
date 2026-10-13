@@ -140,7 +140,13 @@ enum MachineImage {
     /// The format a path is read as: what the machine recorded, or what its bytes
     /// say.
     static func format(atPath path: String, recorded: String?) -> String {
-        if let recorded, !recorded.isEmpty { return recorded.lowercased() }
+        // Whitespace counts as nothing recorded: a machine saved with a blank
+        // format and a blank image format must fall back to the bytes rather
+        // than be read as a format called "  ".
+        if let recorded {
+            let trimmed = recorded.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed.lowercased() }
+        }
         return sniffFormat(atPath: path) ?? "raw"
     }
 

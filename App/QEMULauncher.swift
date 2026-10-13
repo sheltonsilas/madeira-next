@@ -169,7 +169,11 @@ enum QEMUArguments {
     }
 
     private static func json(_ object: [String: Any]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+        // withoutEscapingSlashes because JSONSerialization escapes every "/" by
+        // default, and a path that reads as \/d\/x.iso is a command line nobody
+        // can compare against a file system. QEMU unescapes either form; this is
+        // for the human reading the console.
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]),
               let text = String(data: data, encoding: .utf8) else { return "{}" }
         return text
     }

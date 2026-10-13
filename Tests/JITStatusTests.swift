@@ -71,7 +71,7 @@ final class JITStatusTests: XCTestCase {
                                          physicalMemory: 6 << 30, guestMegabytes: nil)
         let engine = try XCTUnwrap(rows.first { $0.title == "Engine" })
         XCTAssertTrue(engine.isWarning)
-        XCTAssertTrue(try XCTUnwrap(engine.detail).contains("cannot start"))
+        XCTAssertTrue(try XCTUnwrap(engine.detail).contains("no machine can start"))
         let firmware = try XCTUnwrap(rows.first { $0.title == "UEFI firmware" })
         XCTAssertTrue(firmware.isWarning)
     }
