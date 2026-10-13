@@ -22,8 +22,16 @@ guest: the `boot-smoke` job boots a machine with the argument vector the app's o
 code builds, using a host QEMU, and requires it to reach the UEFI shell and then
 stop on command. That check covers the recipe, the firmware and the app's own
 firmware handling; it cannot load the iOS engine, so nothing there proves the
-engine itself, which only a device can. Run 38276446514 is the first run that got
-as far as a guest: `UEFI Interactive Shell v2.2`, 65.4s after start.
+engine itself, which only a device can. Run 38276446514 was the first run that got
+as far as a guest: `UEFI Interactive Shell v2.2`, 65.4s after start. Run
+38395227472 did it again in 66.6s, with the argument vector the launcher builds
+after it was rewritten for guest kinds and install disks, so the recipe is
+re-measured rather than assumed.
+
+The same run's `invariants` job is the cheap half of this: it checks the
+entitlements and their build wiring, the Swift's delimiters, and every image URL,
+size and checksum list in the catalogue against the servers it names - the check
+that caught a Fedora URL which answers 404 from a runner and 200 from elsewhere.
 
 One caveat worth knowing: GitHub disables a scheduled workflow after 60 days with
 no repository activity. Any push clears that, and so does starting the workflow by
@@ -42,6 +50,7 @@ Verified contents of the packaged IPA:
 | Device family | iPhone and iPad (`UIDeviceFamily` 1, 2) |
 | Linux engine | `Frameworks/qemu-aarch64-softmmu.framework` (55 frameworks) |
 | UEFI firmware | `share/qemu/edk2-aarch64-code.fd`, `share/qemu/edk2-arm-vars.fd` |
+| Entitlements | `Payload/MadeiraNext.app/MadeiraNext.entitlements`: the six keys from `App/MadeiraNext.entitlements`. They are not in the signature - there is none - so signing with them is a step you take, see below |
 | Signature | none (`_CodeSignature` and `embedded.mobileprovision` are absent, so the app is ready to re-sign) |
 
 ## Getting the IPA again
@@ -84,25 +93,66 @@ Nothing here depends on an editing session or on the machine that asked for it.
 A green run on `main` is the source of truth; if there is none, push to `main` or
 start the `ios` workflow by hand and fetch again.
 
-## Signing and installing
+## Signing and installingAny sideloading tool can sign and install the IPA, because the file itself is
+unsigned. With a free Apple ID, **AltStore** or **Sideloadly** will do it; expect
+the usual seven-day certificate, after which the app has to be re-signed.
 
-Any sideloading tool works, because the app is unsigned and carries no
-entitlements of its own. With a free Apple ID, **AltStore** or **Sideloadly**
-will sign and install it; expect the usual seven-day certificate, after which
-the app has to be re-signed.
+The one thing not to leave to a tool's defaults is the entitlements - see below.
+A tool that strips them produces an app that installs cleanly and is killed the
+moment a guest asks for its RAM.
 
-The one requirement is **JIT**. The Linux engine is QEMU's TCI interpreter build,
-so a machine can boot without any JIT entitlement — but a sideloaded app on iOS
-17+ generally runs under a debugger-only policy. If the engine is refused, the
-console will say so: the message is captured in the console screen and appended
-to `Documents/linux-engine.log`.
+### Sign it with the app's own entitlements
+
+The engine needs four things a sideloading tool will not ask for on its own:
+executable memory (`get-task-allow`, `com.apple.security.cs.allow-jit`), a larger
+memory limit (`com.apple.developer.kernel.increased-memory-limit`) and more
+virtual address space
+(`com.apple.developer.kernel.extended-virtual-addressing`). Without the memory
+one, a guest's RAM is an allocation iOS can kill the app for halfway through
+making it, which looks exactly like a crash: the screen goes away, no message,
+nothing in any log.
+
+Those keys are `App/MadeiraNext.entitlements`, and a copy travels inside the IPA
+at `Payload/MadeiraNext.app/MadeiraNext.entitlements`. On a Mac, sign with that
+file and have the signature checked before you install:
+
+```sh
+python3 tools/fetch_latest_ipa.py
+tools/sign_ipa.sh dist/MadeiraNext-unsigned.ipa \
+  --identity "Apple Development: You (TEAMID1234)"
+```
+
+That signs every nested framework, then the app, then reads the entitlements back
+out of the signature and refuses to finish if any of the four keys is missing - a
+signature without them is an app that installs and cannot run a guest.
+
+**JIT is not required.** The engine in this build interprets guest code instead of
+compiling it, so a machine runs with no executable memory at all - and far more
+slowly than a JIT would, which is why an installer can take minutes to reach its
+first screen. The Diagnostics screen says which situation this process is in, and
+it is measured rather than assumed: a `P_TRACED` check on this process and a real
+`MAP_JIT` mapping.
 
 ## Using it
 
-1. Create a machine (name, RAM, CPUs).
-2. **Choose disk image...** and pick a Linux ISO or a disk image (`.iso`,
-   `.qcow2`, `.img`, `.raw`). It is copied into the app's own storage.
-3. **Start**. The console screen shows the guest's serial output.
+1. Tap **+** and create a machine: a name, a guest (**Linux** or **Windows
+   (ARM64)**), RAM and CPUs. 1024 MB or less is what runs without the memory
+   entitlement; more than that is a deliberate choice the Diagnostics screen will
+   warn about.
+2. Give it a medium, in whichever way suits:
+   * **Download a Linux image...** lists six aarch64 images with their real sizes
+     and fetches one with a background download: it keeps going while the app is
+     closed, is verified against the distribution's own checksum list, and lands
+     in the machine's folder. Nothing has to be found on a computer first.
+   * **Choose disk image...** takes your own file (`.iso`, `.qcow2`, `.img`,
+     `.raw`). It is copied into the app's own storage, and what it is is decided
+     by its bytes: a qcow2 image named `.img` is read as qcow2 rather than as raw.
+3. If the medium is an installer, make it somewhere to install: **Create install
+   disk** makes a sparse 16 GB disk in the machine's folder and attaches it
+   beside the ISO. Without it, setup runs and finds nothing to install to.
+4. **Start**. The console screen shows the guest's serial output. Windows has no
+   downloadable image - the machine's own note says where one comes from and
+   which of its installer checks this engine cannot satisfy.
 
 A guest boots **headless**: there is no display in the app yet, so the console is
 the whole of what you can see. A desktop ISO is the case to watch, because its
@@ -119,10 +169,18 @@ The messages that matter:
 
 | Message | Meaning |
 |---|---|
-| "This build has no Linux engine" | The IPA was packaged without `Frameworks/`; use an artifact from a green run. |
-| "No disk image is set for this machine yet" | Pick one with **Choose disk image...**. |
+| "This build has no engine" | The IPA was packaged without `Frameworks/`; use an artifact from a green run. |
+| "No disk image is set for this machine yet" | Pick one with **Choose disk image...** or **Download a Linux image...**. |
+| "The image at ... is empty" | The file is zero bytes: the import or download did not finish. |
 | "The disk image is no longer at ..." | The machine's copy was removed from the app's storage. |
+| "The engine refused to start (exit N)" | QEMU would not take the command line and said so. The app stayed up to show it: the reason is in the console above that line and in `Documents/linux-engine.log`. |
+| A note about guest memory in the console | The machine asks for more RAM than an app without `com.apple.developer.kernel.increased-memory-limit` may hold. Sign with `App/MadeiraNext.entitlements`, or give the machine 1024 MB. |
 | A QEMU error in the console | The engine's own words. Copy them from `Documents/linux-engine.log`; that file is the reason the app does not vanish silently. |
+
+The **Diagnostics** screen (top left) is the short answer to "why did that not
+run": it reports the engine, the firmware, whether executable memory is allowed,
+the engine kind, the guest's memory against the limit, and the last engine exit,
+then offers the engine log in full.
 
 Nothing here has been run on a device yet. See `docs/ARCHITECTURE.md` for exactly
 which checks pass and which have never been exercised.
