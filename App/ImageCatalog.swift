@@ -100,7 +100,7 @@ struct GuestDistribution: Identifiable, Hashable {
 
 /// What this build can fetch, and what it cannot.
 enum GuestImageCatalog {
-    static let all: [GuestDistribution] = [ubuntu, debian, fedora]
+    static let all: [GuestDistribution] = [ubuntu, debian]
 
     static func distribution(id: String) -> GuestDistribution? {
         all.first { $0.id == id }
@@ -174,6 +174,16 @@ enum GuestImageCatalog {
         summary: "No desktop, very stable, and the smallest general-purpose image here.",
         images: [
             GuestImage(
+                id: "debian-13-genericcloud",
+                kind: .commandLine,
+                remoteFileName: "debian-13-genericcloud-arm64.qcow2",
+                storedFileName: "debian-13-genericcloud-arm64.qcow2",
+                url: URL(string: "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-arm64.qcow2")!,
+                format: .qcow2,
+                byteCount: 337_510_400,
+                checksumURL: URL(string: "https://cloud.debian.org/images/cloud/trixie/latest/SHA512SUMS"),
+                checksumAlgorithm: .sha512),
+            GuestImage(
                 id: "debian-12-genericcloud",
                 kind: .commandLine,
                 remoteFileName: "debian-12-genericcloud-arm64.qcow2",
@@ -184,25 +194,16 @@ enum GuestImageCatalog {
                 checksumURL: URL(string: "https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS"),
                 checksumAlgorithm: .sha512),
         ])
-
-    static let fedora = GuestDistribution(
-        id: "fedora-41",
-        name: "Fedora 41 Cloud",
-        family: "Fedora",
-        summary: "Recent packages and a recent kernel. Command line only.",
-        images: [
-            GuestImage(
-                id: "fedora-41-cloud",
-                kind: .commandLine,
-                remoteFileName: "Fedora-Cloud-Base-Generic-41-1.4.aarch64.qcow2",
-                storedFileName: "Fedora-Cloud-Base-Generic-41-1.4.aarch64.qcow2",
-                url: URL(string: "https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/aarch64/images/Fedora-Cloud-Base-Generic-41-1.4.aarch64.qcow2")!,
-                format: .qcow2,
-                byteCount: 495_255_552,
-                checksumURL: nil,
-                checksumAlgorithm: nil),
-        ])
 }
+
+// Fedora is deliberately absent, and the reason is measured rather than
+// theoretical. Its images are served through a mirror redirect, and a check of
+// the Fedora 41 URL from a GitHub runner answered 404 - the mirror it picked did
+// not carry that release - while the same URL answered 200 from another country
+// minutes earlier. A catalogue entry that works from one place and 404s from
+// another is a Download button that fails for someone, and a user cannot act on
+// it. Every image above is served by a single distribution host, and
+// tools/check_image_catalog.py re-checks all of them on every CI run.
 
 /// Windows, which cannot be in the catalogue above.
 ///

@@ -157,19 +157,18 @@ final class ImageDownloader: NSObject, ObservableObject {
         // suspended app is a killed one: ask for the time explicitly.
         let token = BackgroundTime.begin()
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let result = Self.check(file: file, sumsURL: sumsURL, algorithm: algorithm,
-                                    remoteFileName: image.remoteFileName)
+            let problem = Self.check(file: file, sumsURL: sumsURL, algorithm: algorithm,
+                                     remoteFileName: image.remoteFileName)
             BackgroundTime.end(token)
-            switch result {
-            case .success:
+            guard let problem else {
                 self?.finish(file: file)
-            case .failure(let message):
-                // A file that does not match is worse than no file: it boots
-                // something other than what was asked for. Removed, so the next
-                // attempt starts clean.
-                try? FileManager.default.removeItem(at: file)
-                self?.publish(.failed(message))
+                return
             }
+            // A file that does not match is worse than no file: it boots
+            // something other than what was asked for. Removed, so the next
+            // attempt starts clean.
+            try? FileManager.default.removeItem(at: file)
+            self?.publish(.failed(problem))
         }
     }
 
@@ -186,10 +185,15 @@ final class ImageDownloader: NSObject, ObservableObject {
         }
     }
 
+    /// Nil when the file is what the distribution published, or the sentence to
+    /// show when it is not.
+    ///
+    /// An optional rather than a `Result`: `Result`'s failure has to be an
+    /// `Error`, and a sentence for the user is not one - nothing catches it.
     private static func check(file: URL,
                               sumsURL: URL,
                               algorithm: GuestImage.ChecksumAlgorithm,
-                              remoteFileName: String) -> Result<Void, String> {
+                              remoteFileName: String) -> String? {
         let expected: String
         do {
             let data = try Data(contentsOf: sumsURL)
@@ -197,24 +201,24 @@ final class ImageDownloader: NSObject, ObservableObject {
             guard let found = expectedHash(in: text, for: remoteFileName) else {
                 // A list that does not mention our file is a newer image than
                 // this build knows about; not a mismatch.
-                return .success(())
+                return nil
             }
             expected = found
         } catch {
             // The list is not reachable. The download itself is intact, and
             // failing here would throw away three gigabytes over a checksum the
             // distribution may have rotated.
-            return .success(())
+            return nil
         }
 
         do {
             let actual = try hash(of: file, algorithm: algorithm)
             guard actual.caseInsensitiveCompare(expected) == .orderedSame else {
-                return .failure("The download did not match the published \(algorithm.displayName): expected \(expected.prefix(16))..., got \(actual.prefix(16)).... It has been deleted; try again.")
+                return "The download did not match the published \(algorithm.displayName): expected \(expected.prefix(16))..., got \(actual.prefix(16)).... It has been deleted; try again."
             }
-            return .success(())
+            return nil
         } catch {
-            return .failure("The downloaded image could not be read to verify it: \(error.localizedDescription)")
+            return "The downloaded image could not be read to verify it: \(error.localizedDescription)"
         }
     }
 
