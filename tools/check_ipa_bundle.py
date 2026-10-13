@@ -19,6 +19,7 @@ Exit 0 when every @rpath dependency resolves inside the IPA.
 Usage: check_ipa_bundle.py <path-to.ipa>
 """
 
+import plistlib
 import re
 import struct
 import sys
@@ -27,6 +28,18 @@ import zipfile
 PREFIX = "Payload/MadeiraNext.app/"
 FRAMEWORKS = PREFIX + "Frameworks/"
 ENGINE = FRAMEWORKS + "qemu-aarch64-softmmu.framework/qemu-aarch64-softmmu"
+
+# The entitlements travel inside the IPA, because the file is unsigned: a user
+# with no copy of this repository still has to be able to sign with the keys the
+# engine needs, and a sideloader's defaults are how an app installs and is then
+# killed the moment a guest asks for its RAM.
+ENTITLEMENTS = PREFIX + "MadeiraNext.entitlements"
+REQUIRED_ENTITLEMENTS = [
+    "get-task-allow",
+    "com.apple.security.cs.allow-jit",
+    "com.apple.developer.kernel.increased-memory-limit",
+    "com.apple.developer.kernel.extended-virtual-addressing",
+]
 RTYPE = re.compile(rb"@(rpath|loader_path|executable_path)/[A-Za-z0-9./_+-]+")
 
 # The entry points the launcher resolves with dlsym. QEMU built with
@@ -98,6 +111,20 @@ def main():
                     problems.append(
                         f"the engine does not export {entry.decode()}: it was "
                         f"probably built without --enable-shared-lib")
+
+        if ENTITLEMENTS not in names:
+            problems.append(
+                f"the bundle has no {ENTITLEMENTS[len(PREFIX):]} to sign with, so a user "
+                f"with only the IPA cannot sign with the keys the engine needs")
+        else:
+            try:
+                keys = plistlib.loads(archive.read(ENTITLEMENTS))
+            except Exception as error:  # noqa: BLE001 - any parse failure is the point
+                problems.append(f"the bundled entitlements do not parse: {error}")
+                keys = {}
+            for key in REQUIRED_ENTITLEMENTS:
+                if keys.get(key) is not True:
+                    problems.append(f"the bundled entitlements are missing {key}")
 
         # The app's rpath is what makes @rpath mean Frameworks/, so it is the
         # precondition for everything below.
