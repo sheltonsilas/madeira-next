@@ -17,6 +17,44 @@ permissions:
   contents: read
 
 jobs:
+  invariants:
+    # Seconds long and on Linux, which is the point: the things checked here are
+    # the ones whose absence is invisible until a device is in hand - a missing
+    # entitlement (the app installs and cannot run a guest), an unbalanced brace
+    # (the compile fails in a way that reads like something else), and a
+    # catalogue URL that has moved (a Download button that fails).
+    name: Invariants (entitlements, catalogue, Swift balance)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The entitlements, the project wiring and the exit guard are intact
+        run: python3 tools/check_entitlements.py
+
+      - name: The Swift sources are not lopsided
+        # The files are edited on a machine with no Swift compiler, so the first
+        # compile of a change is a macOS runner away. A brace closed one time too
+        # many or too few is the most common way to spend that run on nothing:
+        # the compiler reports it as a cascade at the end of the file. This is not
+        # a parser and does not claim to be - see the script's own header - but it
+        # catches that, in a second, before the runner is spent.
+        run: python3 tools/check_swift_balance.py
+
+      - name: Every image the app offers is really there, the size it says, and covered by a checksum list
+        # This one talks to Ubuntu, Debian and Fedora. It is here rather than on a
+        # device because a dead URL in the catalogue is a button that fails, and
+        # the only place that can be found before a user finds it is here.
+        run: python3 tools/check_image_catalog.py
+
+      - name: The scripts are valid shell
+        run: |
+          set -euo pipefail
+          for script in tools/sign_ipa.sh tools/fetch-engine.sh tools/trim-qemu-sysroot.sh; do
+            bash -n "$script"
+            echo "$script parses"
+          done
+
   build:
     runs-on: macos-15
     timeout-minutes: 45
@@ -99,6 +137,30 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             build | tail -n 40
 
+      - name: The entitlements are acceptable to codesign and land in a signature
+        # The shipped IPA is unsigned on purpose, so the entitlements are not in
+        # the file the user downloads; what has to be true is that they can be
+        # signed with and that they survive into the signature the kernel reads.
+        # A copy is signed for that and thrown away. A sideloader that strips
+        # them is how an app installs and then cannot run a guest.
+        run: |
+          set -euo pipefail
+          app=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name 'MadeiraNext.app' -type d)
+          test -n "$app"
+          rm -rf "$RUNNER_TEMP/entitlement-check" && mkdir -p "$RUNNER_TEMP/entitlement-check"
+          cp -R "$app" "$RUNNER_TEMP/entitlement-check/MadeiraNext.app"
+          target="$RUNNER_TEMP/entitlement-check/MadeiraNext.app"
+          codesign --force --sign - --entitlements App/MadeiraNext.entitlements "$target"
+          codesign -d --entitlements :- "$target" > "$RUNNER_TEMP/signed-entitlements.plist" 2>/dev/null
+          cat "$RUNNER_TEMP/signed-entitlements.plist"
+          for key in get-task-allow com.apple.security.cs.allow-jit com.apple.developer.kernel.increased-memory-limit com.apple.developer.kernel.extended-virtual-addressing; do
+            grep -q "$key" "$RUNNER_TEMP/signed-entitlements.plist" || {
+              echo "::error::$key does not survive into the signature, so the app would install and fail to run a guest"
+              exit 1
+            }
+          done
+          echo "the entitlements file signs, and every required key is in the signature"
+
       - name: Package the unsigned IPA
         run: |
           set -euo pipefail
@@ -106,6 +168,10 @@ jobs:
           test -n "$app"
           rm -rf Payload dist && mkdir -p Payload dist
           cp -R "$app" Payload/
+          # The entitlements travel with the IPA so the file a sideloader or
+          # tools/sign_ipa.sh needs is inside the deliverable rather than only in
+          # the repository the user installed from.
+          cp App/MadeiraNext.entitlements Payload/MadeiraNext.app/MadeiraNext.entitlements
           # The engine is device-only, so it is copied into the packaged app rather
           # than linked: linking it into the simulator test build fails.
           if [ -d App/Frameworks ] && [ -n "$(ls -A App/Frameworks)" ]; then

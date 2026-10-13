@@ -13,10 +13,23 @@ targets:
     type: application
     platform: iOS
     sources:
+      # The entitlements file and the bridging header are named explicitly as
+      # settings below, so neither is also a resource: a copy of the
+      # entitlements loose in the bundle would be a second, silent answer to
+      # "what is this app signed with".
       - path: App
+        excludes:
+          - "MadeiraNext.entitlements"
+          - "MadeiraNext-Bridging-Header.h"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sheltonsilas.madeiranext
+        # The JIT, kernel-memory and debugger entitlements the engine needs.
+        # tools/sign_ipa.sh signs with this same file, and CI checks that the
+        # keys survive a signature; see docs/INSTALL.md.
+        CODE_SIGN_ENTITLEMENTS: App/MadeiraNext.entitlements
+        # The app's one C file: App/EngineExitGuard.c, the exit interposer.
+        SWIFT_OBJC_BRIDGING_HEADER: App/MadeiraNext-Bridging-Header.h
         PRODUCT_NAME: MadeiraNext
         INFOPLIST_FILE: App/Info.plist
         GENERATE_INFOPLIST_FILE: NO

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  The five keys this app needs, and why each one is here.
+
+	  Every one of them has to survive into the signature the device checks. A
+	  sideloading tool that strips entitlements, or a profile that does not carry
+	  a kernel entitlement, leaves the app installed and unable to run a guest -
+	  which is the report this file exists to answer. tools/sign_ipa.sh signs with
+	  this file explicitly, and the app measures what it actually got (see
+	  App/JITStatus.swift) instead of assuming.
+
+	  get-task-allow
+	    iOS only hands a process executable memory while a debugger holds it
+	    attached, and only a build signed with this key can be debugged. This is
+	    the key that makes JIT possible at all; without it the value below is
+	    decorative.
+	  com.apple.security.cs.allow-jit
+	    The MAP_JIT flag on an mmap. Without it the kernel refuses the mapping and
+	    JITStatus reports it.
+	  com.apple.security.cs.allow-unsigned-executable-memory
+	    For an engine that writes part of its translation buffers through unsigned
+	    memory rather than the dual-mapped JIT pool.
+	  com.apple.developer.kernel.increased-memory-limit
+	    A guest's RAM is one large allocation in this process. Without this the app
+	    is subject to the ordinary per-app limit, and a machine that asks for
+	    several gigabytes is killed by the system as it allocates - the app is
+	    simply gone, with nothing in any log. This is the reason the default guest
+	    size carries a warning on the diagnostics screen.
+	  com.apple.developer.kernel.extended-virtual-addressing
+	    More virtual address space for one process (39 bits rather than 32), which
+	    is what lets a guest's RAM, the engine's translation buffers and the
+	    framebuffer coexist in one address space.
+	  com.apple.security.cs.disable-library-validation
+	    The engine is 55 nested frameworks that the sideloader re-signs with the
+	    user's own certificate. Library validation refuses a framework signed byanyone else, including this app's own nested frameworks once a sideloader has re-signed them, so it is here for the same reason UTM keeps it.
+	-->
+	<key>get-task-allow</key>
+	<true/>
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+	<key>com.apple.developer.kernel.increased-memory-limit</key>
+	<true/>
+	<key>com.apple.developer.kernel.extended-virtual-addressing</key>
+	<true/>
+</dict>
+</plist>

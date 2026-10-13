@@ -67,4 +67,39 @@ final class MachineStoreTests: XCTestCase {
         try Data("not json".utf8).write(to: file)
         XCTAssertThrowsError(try MachineStore(fileURL: file).load())
     }
+
+    func testRoundTripKeepsTheGuestAndBothMedia() throws {
+        let store = makeStore()
+        var machine = Machine(name: "Windows", guest: .windows, memoryMB: 4096, cpuCount: 2)
+        machine.imagePath = "/machines/1/windows.iso"
+        machine.imageFormat = "iso"
+        machine.diskPath = "/machines/1/install.raw"
+        try store.save([machine])
+        let loaded = try store.load()
+        XCTAssertEqual(loaded.first?.guest, .windows)
+        XCTAssertEqual(loaded.first?.imageFormat, "iso")
+        XCTAssertEqual(loaded.first?.diskPath, "/machines/1/install.raw")
+    }
+
+    func testAFileWrittenBeforeGuestsExistedStillLoads() throws {
+        // Losing a user's machines to a schema change is the one failure mode a
+        // store may not have, so every field added since is decoded as optional
+        // or with a default.
+        let file = directory.appendingPathComponent("machines.json")
+        let json = #"[{"id":"\#(UUID().uuidString)","name":"old","memoryMB":1024,"cpuCount":1,"imagePath":"/x/y.qcow2"}]"#
+        try Data(json.utf8).write(to: file)
+
+        let machines = try MachineStore(fileURL: file).load()
+        XCTAssertEqual(machines.count, 1)
+        XCTAssertEqual(machines.first?.guest, .linux, "a machine from before guests existed is a Linux machine")
+        XCTAssertNil(machines.first?.imageFormat)
+        XCTAssertNil(machines.first?.diskPath)
+        XCTAssertEqual(machines.first?.imagePath, "/x/y.qcow2")
+    }
+
+    func testTheGuestDefaultsToLinuxInTheForm() {
+        XCTAssertEqual(Machine(name: "m", memoryMB: 2048, cpuCount: 2).guest, .linux)
+        XCTAssertEqual(GuestKind.allCases.count, 2)
+        XCTAssertEqual(GuestKind.windows.title, "Windows (ARM64)")
+    }
 }
